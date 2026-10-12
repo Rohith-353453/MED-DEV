@@ -72,7 +72,7 @@ class HealthSummary(Base):
     document_id: Mapped[str] = mapped_column(ForeignKey("documents.id", ondelete="CASCADE"), index=True)
     language: Mapped[str] = mapped_column(String(16), default="en")
     summary_text: Mapped[str] = mapped_column(Text, default="")
-    prompt_version: Mapped[str] = mapped_column(String(40), default="summary-v1")
+    prompt_version: Mapped[str] = mapped_column(String(40), default="summary-v2")
     model_name: Mapped[str] = mapped_column(String(100), default="mock")
     is_user_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

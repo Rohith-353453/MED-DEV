@@ -5,9 +5,10 @@ from sqlalchemy import and_, or_, select, update
 
 from app.config import get_settings
 from app.db import SessionLocal
-from app.models import Document, HealthSummary
+from app.languages import normalize_language
+from app.models import Document, HealthSummary, UserProfile
 from app.schemas import ExtractedData
-from app.services.ai import DISCLAIMER, get_ai_provider
+from app.services.ai import disclaimer_for_language, get_ai_provider
 from app.services.ocr import get_ocr_provider
 from app.services.storage import get_storage
 from app.services.timeline import rebuild_document_events
@@ -37,6 +38,9 @@ async def process_document(document_id: str) -> None:
         document = await session.scalar(select(Document).where(Document.id == document_id))
         if document is None:
             return
+        owner = await session.get(UserProfile, document.owner_id)
+        profile_language = owner.preferred_language if owner else "en"
+        summary_language = normalize_language(profile_language)
         try:
             content = await get_storage().get(document.storage_key)
             ocr = await get_ocr_provider().analyze(content, document.mime_type)
@@ -50,14 +54,23 @@ async def process_document(document_id: str) -> None:
             if not ocr.raw_text.strip():
                 extracted = ExtractedData(
                     document_type="other",
-                    notes="No text was extracted. Verify the document and retry with OCR configured.",
+                    notes={
+                        "en": "No text was extracted. Verify the document and retry with OCR configured.",
+                        "hi": "दस्तावेज़ से पाठ नहीं निकला। स्रोत दस्तावेज़ जाँचें और OCR कॉन्फ़िगरेशन सत्यापित करें।",
+                        "ta": "ஆவணத்திலிருந்து உரை எடுக்கப்படவில்லை. மூல ஆவணத்தைச் சரிபார்த்து OCR அமைப்பை மீண்டும் முயற்சிக்கவும்.",
+                        "te": "పత్రం నుండి వచనం సేకరించబడలేదు. మూల పత్రాన్ని తనిఖీ చేసి OCRని మళ్లీ ప్రయత్నించండి.",
+                        "ml": "രേഖയിൽ നിന്ന് വാചകം ലഭിച്ചില്ല. ഉറവിട രേഖ പരിശോധിച്ച് OCR ക്രമീകരണം വീണ്ടും ശ്രമിക്കുക.",
+                    }[summary_language],
                     overall_confidence=0,
                 )
-                summary_text = (
-                    "No document text was extracted, so a health summary cannot be generated. "
-                    "Check that document processing is configured and verify the source document.\n\n"
-                    + DISCLAIMER
-                )
+                summary_lead = {
+                    "en": "No document text was extracted, so a health summary cannot be generated. Check document processing and verify the source document.",
+                    "hi": "दस्तावेज़ से पाठ नहीं निकला, इसलिए स्वास्थ्य सारांश नहीं बनाया जा सकता। प्रोसेसिंग सेटिंग जाँचें और स्रोत दस्तावेज़ सत्यापित करें।",
+                    "ta": "ஆவணத்திலிருந்து உரை எடுக்கப்படாததால் சுகாதாரச் சுருக்கத்தை உருவாக்க முடியவில்லை. செயலாக்க அமைப்பைச் சரிபார்த்து மூல ஆவணத்தைப் பார்க்கவும்.",
+                    "te": "పత్రం నుండి వచనం సేకరించబడలేదు కాబట్టి ఆరోగ్య సారాంశం రూపొందించలేము. ప్రాసెసింగ్ సెట్టింగ్‌లను తనిఖీ చేసి మూల పత్రాన్ని పరిశీలించండి.",
+                    "ml": "രേഖയിൽ നിന്ന് വാചകം ലഭിക്കാത്തതിനാൽ ആരോഗ്യ സംഗ്രഹം സൃഷ്ടിക്കാനായില്ല. പ്രോസസ്സിംഗ് ക്രമീകരണം പരിശോധിച്ച് ഉറവിട രേഖ ഉറപ്പാക്കുക.",
+                }[summary_language]
+                summary_text = f"{summary_lead}\n\n{disclaimer_for_language(summary_language)}"
                 model_name = "none"
                 document.status = "needs_review"
             else:
@@ -79,7 +92,7 @@ async def process_document(document_id: str) -> None:
                     extracted = ExtractedData.model_validate(
                         {**machine_baseline, **(document.extraction_overrides or {})}
                     )
-                    summary_text = await ai.summarize(extracted)
+                    summary_text = await ai.summarize(extracted, summary_language)
                     model_name = settings.summary_deployment if settings.llm_provider == "azure" else "mock"
                     document.document_type = extracted.document_type
                     document.document_date = extracted.document_date
@@ -111,9 +124,10 @@ async def process_document(document_id: str) -> None:
                 HealthSummary(
                     owner_id=document.owner_id,
                     document_id=document.id,
-                    language="en",
+                    language=summary_language,
                     summary_text=summary_text,
                     model_name=model_name or "azure-openai",
+                    prompt_version="summary-v2",
                 )
             )
             await session.commit()

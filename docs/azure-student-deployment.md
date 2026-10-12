@@ -12,7 +12,20 @@ This deployment is a **hackathon and synthetic-data environment**, not a product
    az account show --query '{name:name,id:id}'
    ```
 
-2. Create a resource group in a region where the subscription has quota for PostgreSQL Flexible Server, Container Apps, and the AI resources. Deploy the existing Azure OpenAI and Document Intelligence accounts in the same resource group as the template; their **account names**, endpoints, GPT-4o deployment name, and access quota must be known first. Azure OpenAI deployments and Student offer availability vary by account and region.
+2. Create a resource group in a region where the subscription has quota for PostgreSQL Flexible Server, Container Apps, and the AI resources. Deploy the existing Azure OpenAI and Document Intelligence accounts in the same resource group as the template; their **account names**, endpoints, selected model deployment name, and access quota must be known first. Azure OpenAI deployments and Student offer availability vary by account and region.
+
+### Confirm AI access before creating resources
+
+Check model availability and quota in [Microsoft Foundry](https://ai.azure.com/) before creating the app infrastructure:
+
+1. Select the Azure for Students subscription and the region you plan to use.
+2. Open **Manage → Quota** and check whether your chosen chat model can be deployed in the project region. Quota and capacity depend on the subscription, model, region, and deployment type. If GPT-4o is unavailable, choose another supported model and deployment type that has quota; verify that the app's configured Azure OpenAI API version supports it.
+3. In the model catalog, deploy the available chat model using a standard, pay-per-use deployment type where possible. Record the **deployment name** exactly; the app sends that name as `AZURE_OPENAI_DEPLOYMENT`. Avoid provisioned throughput for this demo.
+4. Create a Document Intelligence resource in the same region where possible. F0 is available for trying the service, with a 4 MB document limit and two analyzed pages. The project defaults (`AZURE_DOCUMENT_INTELLIGENCE_MAX_MB=4`, `MAX_DOCUMENT_PAGES=2`) match those limits. Check the current tier limits and costs before creating S0 resources.
+
+After creating the AI resources, record their resource names and endpoints. The Azure deployment uses managed identities and role assignments, so it needs the account names/endpoints and GPT-4o deployment name, not account keys. For local API development, keys can be placed in the ignored `backend/.env` file; never put them in frontend `VITE_*` variables or commit them.
+
+Microsoft's guides: [manage Azure OpenAI quota](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/quota), [Document Intelligence resource setup](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/create-document-intelligence-resource?view=doc-intel-4.0.0), and [Document Intelligence service limits](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/service-limits?tabs=v30&view=doc-intel-3.0.0).
 
 3. Build and push the backend image to a registry the Container Apps environment can pull from. Use a versioned tag, not `latest`. The repository has a backend Dockerfile but does not provision a container registry or build/push pipeline.
 

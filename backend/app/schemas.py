@@ -3,6 +3,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
+from app.languages import SupportedLanguage, normalize_language
+
 DocumentType = Literal["prescription", "lab_report", "discharge_summary", "diagnostic", "other"]
 LabFlag = Literal["H", "L", "N", "HH", "LL"]
 DocumentStatus = Literal["queued", "processing", "completed", "needs_review", "failed"]
@@ -69,10 +71,15 @@ class ProfileRead(StrictModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("preferred_language", mode="before")
+    @classmethod
+    def safe_preferred_language(cls, value: str | None) -> str:
+        return normalize_language(value)
+
 
 class ProfilePatch(StrictModel):
     display_name: str | None = Field(default=None, max_length=160)
-    preferred_language: str | None = Field(default=None, min_length=2, max_length=16)
+    preferred_language: SupportedLanguage | None = None
     birth_date: Date | None = None
     gender: str | None = Field(default=None, max_length=80)
 
@@ -88,14 +95,19 @@ class SummaryRead(StrictModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("language", mode="before")
+    @classmethod
+    def safe_summary_language(cls, value: str | None) -> str:
+        return normalize_language(value)
+
 
 class SummaryPatch(StrictModel):
     summary_text: str = Field(min_length=1, max_length=20000)
-    language: str | None = Field(default=None, min_length=2, max_length=16)
+    language: SupportedLanguage | None = None
 
 
 class SummaryGenerateRequest(StrictModel):
-    language: str | None = Field(default=None, min_length=2, max_length=16)
+    language: SupportedLanguage | None = None
 
 
 class DocumentRead(StrictModel):

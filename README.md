@@ -17,3 +17,7 @@ The React interface in [frontend/](frontend/) now uses the FastAPI endpoints for
 ## Synthetic demo
 
 Use [samples/synthetic-lab-report.pdf](samples/synthetic-lab-report.pdf) for a local end-to-end demonstration. It contains fictional values and is processed only by the explicit local mock fixture path.
+
+## Languages
+
+Carefolio supports English (`en`), Hindi (`hi`), Tamil (`ta`), Telugu (`te`), and Malayalam (`ml`) in the interface and generated summaries. Choose a language in the top-bar switcher or the profile preference selector. The saved preference controls upload-time summaries; use **Generate from current fields** to create an existing document's summary in the selected language. Recorded test names and medical values remain as they appear in the source.

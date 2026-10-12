@@ -63,8 +63,14 @@ export function documentStatusLabel(status: string): string {
   return status.replace(/_/g, ' ').replace(/\b\w/g, (letter: string) => letter.toUpperCase())
 }
 
-export function formatDate(value: string | null | undefined): string {
-  if (!value) return 'Date not recorded'
+export function formatDate(value: string | null | undefined, language = 'en'): string {
+  const locales: Record<string, string> = { en: 'en', hi: 'hi-IN', ta: 'ta-IN', te: 'te-IN', ml: 'ml-IN' }
+  const locale = locales[language] || 'en'
+  const notRecorded: Record<string, string> = {
+    hi: 'तारीख दर्ज नहीं है', ta: 'தேதி பதிவு செய்யப்படவில்லை',
+    te: 'తేదీ నమోదు కాలేదు', ml: 'തീയതി രേഖപ്പെടുത്തിയിട്ടില്ല',
+  }
+  if (!value) return notRecorded[language] || 'Date not recorded'
   const parsed = new Date(`${value.slice(0, 10)}T00:00:00`)
-  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(parsed)
+  return Number.isNaN(parsed.getTime()) ? value : new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(parsed)
 }

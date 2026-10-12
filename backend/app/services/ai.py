@@ -5,6 +5,7 @@ from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from openai import AsyncAzureOpenAI
 
 from app.config import get_settings
+from app.languages import add_disclaimer, disclaimer_for, normalize_language
 from app.schemas import ExtractedData
 
 PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
@@ -14,6 +15,8 @@ DISCLAIMER = (
     "substitute for professional medical advice, diagnosis, or treatment. Always consult your "
     "doctor or qualified healthcare provider."
 )
+def disclaimer_for_language(language: str) -> str:
+    return disclaimer_for(language)
 
 
 class MockAIProvider:
@@ -65,24 +68,46 @@ class MockAIProvider:
         )
 
     async def summarize(self, extracted: ExtractedData, language: str = "en") -> str:
+        language = normalize_language(language)
+        disclaimer = disclaimer_for_language(language)
         if extracted.notes and extracted.notes.startswith("Synthetic training fixture"):
-            results = "; ".join(
-                f"{item.test_name}: {item.value or 'not recorded'} {item.unit or ''}"
-                f" (reference range {item.reference_range or 'not listed'}; source flag {item.flag or 'not listed'})"
+            labels = {
+                "en": ("Synthetic demonstration report", "Reference range", "Source flag", "The flags are copied from the source report and are not a clinical interpretation.", "No medications or diagnoses were listed in this sample."),
+                "hi": ("सिंथेटिक प्रदर्शन रिपोर्ट", "संदर्भ सीमा", "स्रोत फ़्लैग", "फ़्लैग स्रोत रिपोर्ट से लिए गए हैं और यह कोई चिकित्सीय आकलन नहीं है।", "इस नमूने में कोई दवा या निदान सूचीबद्ध नहीं है।"),
+                "ta": ("செயற்கை விளக்க அறிக்கை", "குறிப்பு வரம்பு", "மூலக் குறியீடு", "குறியீடுகள் மூல அறிக்கையிலிருந்து எடுக்கப்பட்டவை; அவை மருத்துவ விளக்கம் அல்ல.", "இந்த மாதிரியில் மருந்துகள் அல்லது நோயறிதல்கள் பட்டியலிடப்படவில்லை."),
+                "te": ("సింథటిక్ ప్రదర్శన నివేదిక", "సూచన పరిధి", "మూల ఫ్లాగ్", "ఫ్లాగ్‌లు మూల నివేదిక నుండి తీసుకున్నవి; ఇవి వైద్యపరమైన అర్థం కావు.", "ఈ నమూనాలో మందులు లేదా నిర్ధారణలు నమోదు కాలేదు."),
+                "ml": ("സിന്തറ്റിക് ഡെമോ റിപ്പോർട്ട്", "റഫറൻസ് പരിധി", "ഉറവിട ഫ്ലാഗ്", "ഫ്ലാഗുകൾ ഉറവിട റിപ്പോർട്ടിൽ നിന്നുള്ളതാണ്; അവ മെഡിക്കൽ വ്യാഖ്യാനമല്ല.", "ഈ മാതൃകയിൽ മരുന്നുകളോ രോഗനിർണയങ്ങളോ രേഖപ്പെടുത്തിയിട്ടില്ല."),
+            }
+            title, reference, flag_label, flag_note, medications_note = labels[language]
+            rows = "\n".join(
+                f"- {item.test_name}: {item.value or '—'} {item.unit or ''} "
+                f"({reference}: {item.reference_range or '—'}; {flag_label}: {item.flag or '—'})"
                 for item in extracted.lab_results
-            )
-            return (
-                "This is a synthetic demonstration report dated "
-                f"{extracted.document_date or 'not recorded'}. It lists {results}. "
-                "The H flag is copied from the sample report and is not an interpretation. "
-                "No medications or diagnoses were listed in this sample. Verify any real health information against its source document.\n\n"
-                + DISCLAIMER
-            )
-        return (
-            "A summary is not available because the mock AI provider is active. Connect the Azure "
-            "OpenAI provider to generate a summary from verified extracted information.\n\n"
-            + DISCLAIMER
-        )
+            ) or "—"
+            if language == "en":
+                body = (f"{title} dated {extracted.document_date or 'not recorded'}. This is a fictional sample, not a real patient's report.\n\n"
+                        f"Key findings\n{rows}\n\n{flag_note} {medications_note} Verify values against the source document.")
+            elif language == "hi":
+                body = (f"{extracted.document_date or 'तारीख दर्ज नहीं'} की {title}। यह काल्पनिक नमूना है, किसी वास्तविक मरीज़ की रिपोर्ट नहीं।\n\n"
+                        f"मुख्य निष्कर्ष\n{rows}\n\n{flag_note} {medications_note} मानों को स्रोत दस्तावेज़ से जाँचें।")
+            elif language == "ta":
+                body = (f"{extracted.document_date or 'பதிவாகவில்லை'} தேதியிட்ட {title}. இது கற்பனை மாதிரி; உண்மையான நோயாளியின் அறிக்கை அல்ல.\n\n"
+                        f"முக்கிய கண்டறிவுகள்\n{rows}\n\n{flag_note} {medications_note} மதிப்புகளை மூல ஆவணத்துடன் சரிபார்க்கவும்.")
+            elif language == "te":
+                body = (f"{extracted.document_date or 'నమోదు కాలేదు'} తేదీ గల {title}. ఇది కల్పిత నమూనా; నిజమైన రోగి నివేదిక కాదు.\n\n"
+                        f"ముఖ్యమైన వివరాలు\n{rows}\n\n{flag_note} {medications_note} విలువలను మూల పత్రంతో తనిఖీ చేయండి.")
+            else:
+                body = (f"{extracted.document_date or 'രേഖപ്പെടുത്തിയിട്ടില്ല'} തീയതിയിലുള്ള {title}. ഇത് സാങ്കൽപ്പിക മാതൃകയാണ്; യഥാർത്ഥ രോഗിയുടെ റിപ്പോർട്ടല്ല.\n\n"
+                        f"പ്രധാന കണ്ടെത്തലുകൾ\n{rows}\n\n{flag_note} {medications_note} മൂല രേഖയുമായി മൂല്യങ്ങൾ പരിശോധിക്കുക.")
+            return f"{body}\n\n{disclaimer}"
+        unavailable = {
+            "en": "A summary is not available because the mock AI provider is active. Connect Azure OpenAI to generate a summary from verified extracted information.",
+            "hi": "मॉक AI प्रदाता सक्रिय होने के कारण सारांश उपलब्ध नहीं है। सत्यापित निकाली गई जानकारी से सारांश बनाने के लिए Azure OpenAI कनेक्ट करें।",
+            "ta": "மோக் AI வழங்குநர் செயல்பாட்டில் இருப்பதால் சுருக்கம் கிடைக்கவில்லை. சரிபார்க்கப்பட்ட தகவலிலிருந்து சுருக்கத்தை உருவாக்க Azure OpenAI-ஐ இணைக்கவும்.",
+            "te": "మాక్ AI ప్రొవైడర్ యాక్టివ్‌గా ఉన్నందున సారాంశం అందుబాటులో లేదు. ధృవీకరించిన సమాచారంతో సారాంశం రూపొందించడానికి Azure OpenAIని కనెక్ట్ చేయండి.",
+            "ml": "മോക്ക് AI പ്രൊവൈഡർ സജീവമായതിനാൽ സംഗ്രഹം ലഭ്യമല്ല. പരിശോധിച്ച വിവരങ്ങളിൽ നിന്ന് സംഗ്രഹം സൃഷ്ടിക്കാൻ Azure OpenAI ബന്ധിപ്പിക്കുക.",
+        }[language]
+        return f"{unavailable}\n\n{disclaimer}"
 
 
 class AzureOpenAIProvider:
@@ -139,8 +164,12 @@ class AzureOpenAIProvider:
         return ExtractedData.model_validate_json(content)
 
     async def summarize(self, extracted: ExtractedData, language: str = "en") -> str:
+        language = normalize_language(language)
+        disclaimer = disclaimer_for_language(language)
+        language_names = {"en": "English", "hi": "Hindi", "ta": "Tamil", "te": "Telugu", "ml": "Malayalam"}
         summary_prompt = (PROMPTS_DIR / "summary.txt").read_text(encoding="utf-8").format(
-            language=language,
+            language=f"{language_names[language]} ({language})",
+            disclaimer=disclaimer,
             extracted_json=extracted.model_dump_json(),
         )
         response = await self.client.chat.completions.create(
@@ -156,9 +185,7 @@ class AzureOpenAIProvider:
             ],
         )
         text = response.choices[0].message.content or ""
-        if not text.rstrip().endswith(DISCLAIMER):
-            text = f"{text.rstrip()}\n\n{DISCLAIMER}"
-        return text.rstrip()
+        return add_disclaimer(text, language)
 
 
 def get_ai_provider() -> MockAIProvider | AzureOpenAIProvider:

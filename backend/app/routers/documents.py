@@ -12,6 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.auth import CurrentProfile
 from app.config import get_settings
 from app.db import get_session
+from app.languages import add_disclaimer, normalize_language
 from app.models import AuditLog, Document, HealthSummary, TimelineEvent
 from app.schemas import (
     BlobAccess,
@@ -25,7 +26,7 @@ from app.schemas import (
     UploadAccepted,
     ExtractedData,
 )
-from app.services.ai import DISCLAIMER, get_ai_provider
+from app.services.ai import get_ai_provider
 from app.services.pipeline import process_document
 from app.services.queue import get_document_queue
 from app.services.storage import get_storage
@@ -382,11 +383,10 @@ async def update_summary(
     )
     if summary is None:
         raise HTTPException(status_code=404, detail="Summary not found")
-    summary.summary_text = payload.summary_text.rstrip()
-    if not summary.summary_text.endswith(DISCLAIMER):
-        summary.summary_text = f"{summary.summary_text}\n\n{DISCLAIMER}"
     if payload.language is not None:
         summary.language = payload.language
+    summary.language = normalize_language(summary.language)
+    summary.summary_text = add_disclaimer(payload.summary_text, summary.language)
     summary.is_user_edited = True
     record_audit(session, profile.id, document_id, "summary.edited", {"summary_id": summary.id})
     await session.commit()
@@ -409,7 +409,7 @@ async def generate_summary(
             f"{document.page_count - document.pages_processed} page(s) were not analyzed."
         )
         extracted.notes = f"{extracted.notes}\n{coverage_note}" if extracted.notes else coverage_note
-    language = payload.language or profile.preferred_language
+    language = normalize_language(payload.language or profile.preferred_language)
     ai = get_ai_provider()
     try:
         summary_text = await ai.summarize(extracted, language)
@@ -426,7 +426,7 @@ async def generate_summary(
             if get_settings().llm_provider == "azure"
             else "mock"
         ) or "mock",
-        prompt_version="summary-v1",
+        prompt_version="summary-v2",
     )
     session.add(summary)
     await session.commit()

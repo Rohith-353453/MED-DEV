@@ -67,3 +67,5 @@ Local development can create the schema at startup. For deployed environments se
 For Azure student infrastructure provisioning, managed-identity permissions, migration steps, and cleanup, see [`docs/azure-student-deployment.md`](../docs/azure-student-deployment.md) and [`infra/main.bicep`](../infra/main.bicep).
 
 This prototype is for educational development and demonstration. Use synthetic or de-identified documents, not real patient records.
+
+Supported profile and summary language codes are `en`, `hi`, `ta`, `te`, and `ml`. The profile preference controls upload-time summaries and is used as the default when generating a summary from current fields. Unexpected legacy values safely fall back to English.
