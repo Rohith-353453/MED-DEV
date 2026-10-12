@@ -19,15 +19,28 @@ This deployment is a **hackathon and synthetic-data environment**, not a product
 Check model availability and quota in [Microsoft Foundry](https://ai.azure.com/) before creating the app infrastructure:
 
 1. Select the Azure for Students subscription and the region you plan to use.
-2. Open **Manage → Quota** and check whether your chosen chat model can be deployed in the project region. Quota and capacity depend on the subscription, model, region, and deployment type. If GPT-4o is unavailable, choose another supported model and deployment type that has quota; verify that the app's configured Azure OpenAI API version supports it.
+2. Open **Manage → Quota** and check whether your chosen chat model can be deployed in the project region. Quota and capacity depend on the subscription, model, region, and deployment type. If a model is unavailable, choose another supported model and deployment type that has quota; verify that the app's configured Azure OpenAI API version supports it.
 3. In the model catalog, deploy the available chat model using a standard, pay-per-use deployment type where possible. Record the **deployment name** exactly; the app sends that name as `AZURE_OPENAI_DEPLOYMENT`. Avoid provisioned throughput for this demo.
 4. Create a Document Intelligence resource in the same region where possible. F0 is available for trying the service, with a 4 MB document limit and two analyzed pages. The project defaults (`AZURE_DOCUMENT_INTELLIGENCE_MAX_MB=4`, `MAX_DOCUMENT_PAGES=2`) match those limits. Check the current tier limits and costs before creating S0 resources.
 
-After creating the AI resources, record their resource names and endpoints. The Azure deployment uses managed identities and role assignments, so it needs the account names/endpoints and GPT-4o deployment name, not account keys. For local API development, keys can be placed in the ignored `backend/.env` file; never put them in frontend `VITE_*` variables or commit them.
+After creating the AI resources, record their resource names and endpoints. The Azure deployment uses managed identities and role assignments, so it needs the account names/endpoints and your chosen model deployment name, not account keys. For local API development, keys can be placed in the ignored `backend/.env` file; never put them in frontend `VITE_*` variables or commit them.
 
 Microsoft's guides: [manage Azure OpenAI quota](https://learn.microsoft.com/en-us/azure/foundry/openai/how-to/quota), [Document Intelligence resource setup](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/create-document-intelligence-resource?view=doc-intel-4.0.0), and [Document Intelligence service limits](https://learn.microsoft.com/en-us/azure/ai-services/document-intelligence/service-limits?tabs=v30&view=doc-intel-3.0.0).
 
-3. Build and push the backend image to a registry the Container Apps environment can pull from. Use a versioned tag, not `latest`. The repository has a backend Dockerfile but does not provision a container registry or build/push pipeline.
+3. Create an Azure Container Registry in the same resource group (if you do not already have one) and build the backend image into it. A user-assigned identity handles `AcrPull`; separate user-assigned identities authorize the API and worker for their Azure service access. No registry admin password is stored in the deployment. A Basic registry can incur charges, so check student-subscription availability and Cost Management first. Choose an unused globally unique lowercase registry name.
+
+   ```powershell
+   $resourceGroup = 'carefolio-demo-rg'
+   $location = 'eastasia' # Must be allowed by your subscription policy and support the resource.
+   $acrName = '<globally-unique-lowercase-acr-name>'
+   az acr create --resource-group $resourceGroup --name $acrName --location $location --sku Basic --admin-enabled false
+
+   # Use a unique release tag; do not use latest.
+   $imageTag = 'demo-20261013-1'
+   az acr build --registry $acrName --image "carefolio-api:$imageTag" --file Dockerfile backend
+   ```
+
+   Set `containerRegistryName` in your private deployment parameters to `$acrName`, and set `backendImage` to `"$acrName.azurecr.io/carefolio-api:$imageTag"`. The registry must be in the deployment resource group because the Bicep template references it as an existing resource there. The template assigns the pull role to a user-assigned identity before creating the Container Apps.
 
 4. Register/configure Entra External ID applications. Configure an SPA app registration with Authorization Code + PKCE, the deployed Static Web App origin, and the API delegated scope `access_as_user`. The API audience and issuer must exactly match the access token it receives. Add the same client ID, authority, and scope to `frontend/.env` before building the frontend.
 
@@ -51,7 +64,7 @@ az deployment group create `
 Remove-Variable dbPassword, dbPasswordPlain
 ```
 
-The template grants separate managed identities access to storage and AI: the API sends queue messages and accesses blobs; the worker reads queue messages, reads blobs, and calls the AI services. The worker scales to zero when the queue is empty. Storage has no public blob access and shared-key access is disabled. The template configures a two-page OCR limit for the low-cost demo scenario.
+The template grants separate user-assigned identities access to storage and AI: the API sends queue messages and accesses blobs; the worker reads queue messages, reads blobs, and calls the AI services. Express doesn't support custom queue scalers, so the worker is kept at one replica to poll the queue; stop it when the demo is idle to reduce compute charges. Storage has no public blob access and shared-key access is disabled. The template configures a two-page OCR limit for the low-cost demo scenario.
 
 `allowAzureServicesToPostgres` defaults to `true` so Container Apps can connect in this simple demo network. This PostgreSQL firewall exception is broad. Do not store real patient information in this deployment. A production design must use private networking/private endpoints, tighter ingress, managed database identity or a dedicated least-privilege database user, secret rotation, retention/deletion policy, and a privacy/security review.
 
@@ -74,7 +87,7 @@ The Bicep outputs include the API URL, PostgreSQL hostname, storage URL, queue n
 
 ## Cost and cleanup
 
-- Container Apps API and worker are configured with zero minimum replicas; requests/jobs can still incur consumption charges.
+- The API can scale to zero, but the Express queue worker stays at one replica while enabled so it can poll for documents. Stop it when idle; requests/jobs can still incur consumption charges.
 - PostgreSQL Flexible Server is the persistent cost risk. Check whether the selected student subscription supports a free allowance and whether the chosen SKU/region is eligible. Stop or delete it when idle; verify current billing behavior in the portal.
 - Storage, Log Analytics ingestion/retention, Application Insights, AI calls, backups, networking, and registry storage can incur charges. Keep demo uploads synthetic and small; review usage after each session.
 - The app's current AI page limit is two pages, matching the F0-style demo cap. Confirm the selected Document Intelligence tier and quotas before changing it.

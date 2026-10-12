@@ -38,7 +38,7 @@ For the full local demo, start the backend and frontend, then upload `samples/sy
 - `PATCH /api/documents/{id}/summary/{summary_id}` — edit summary text/language; required disclaimer is retained.
 - `POST /api/documents/{id}/summaries` — generate a new summary from the current, possibly corrected extraction.
 - `GET /api/timeline`, `PATCH/DELETE /api/timeline/{event_id}`.
-- `GET /api/profile/me/fhir` — prototype FHIR Bundle export.
+- `GET /api/profile/me/fhir` — authenticated FHIR R4 collection bundle with Patient, MedicationRequest, Observation, Condition, DiagnosticReport, and Composition resources when supported by saved source data. Exported Patient identifiers are explicitly marked `DEMO`; the endpoint is a prototype and does not connect to ABDM.
 - `GET /health/live`, `GET /health/ready`.
 
 All user endpoints use bearer authentication. Entra mode validates the access token signature, issuer, audience, expiration, subject, and required scope/role. Set `ENTRA_JWKS_URI` when the External ID tenant exposes signing keys at a custom URL; otherwise it is derived from the configured issuer. Data is always queried with the authenticated profile ID. Requests for another owner's document return 404.

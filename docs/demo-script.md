@@ -17,7 +17,9 @@ Use only [`samples/synthetic-lab-report.pdf`](../samples/synthetic-lab-report.pd
 5. Open the timeline and show the document event and lab result events.
 6. Edit a display name, a structured extraction field, a summary, and a timeline event. Refresh the page to show the saved changes.
 7. Upload a different synthetic PDF/image while mock providers are active. Explain that it is marked for review because the local mock does not pretend to perform OCR on arbitrary files.
-8. Optionally show the FHIR bundle at `GET /api/profile/me/fhir` in the API docs. It is a prototype export and does not connect to ABDM or another health exchange.
+8. Open **My profile**, switch the summary language, and generate a summary in the selected language.
+9. Download the FHIR R4 bundle from **My profile**. Point out that patient identifiers are mock values and the export does not connect to ABDM.
+10. Show the **Mock ABHA linking** control only as a local demo state. Do not enter or display a real ABHA ID; this is not an ABDM integration.
 
 ## After the demo
 
