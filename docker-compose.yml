@@ -1,0 +1,40 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: carefolio
+      POSTGRES_PASSWORD: local-dev-only
+      POSTGRES_DB: carefolio
+    ports:
+      - "5432:5432"
+    volumes:
+      - carefolio-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U carefolio -d carefolio"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api:
+    build: ./backend
+    environment:
+      APP_ENV: local
+      API_PREFIX: /api
+      DATABASE_URL: postgresql+asyncpg://carefolio:local-dev-only@postgres:5432/carefolio
+      AUTO_CREATE_SCHEMA: "true"
+      AUTH_MODE: mock
+      STORAGE_PROVIDER: local
+      UPLOAD_DIR: /app/uploads
+      OCR_PROVIDER: mock
+      LLM_PROVIDER: mock
+      FRONTEND_ORIGINS: http://localhost:5173
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend/uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  carefolio-postgres:

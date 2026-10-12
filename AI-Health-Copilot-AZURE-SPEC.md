@@ -1,0 +1,452 @@
+# AI Health Copilot — Azure Build Specification
+
+**Purpose:** Build a working, student-credit-conscious prototype that accepts medical documents, extracts structured data, produces cautious plain-language summaries, and presents a patient timeline.
+
+**Intended use:** Educational, noncommercial prototype for development, testing, and demonstration. It is not a medical device, clinical decision-support system, or substitute for a healthcare professional. Do not use real patient data in the demo; use synthetic or properly de-identified samples.
+
+**Implementation instruction:** Treat this file as the product and technical specification. Implement in the phases in §12. Preserve the stated safety and privacy requirements. Do not silently substitute cloud providers or frameworks; keep provider integrations behind interfaces so local development can use mocks.
+
+---
+
+## 1. Product goal
+
+Build an AI-powered personal health-document organizer for a hackathon demonstration. A user uploads prescriptions, lab reports, discharge summaries, or diagnostic records. The application extracts available facts, creates a patient-friendly summary, and adds dated events to a unified timeline.
+
+### Round 1 deliverables
+
+1. Working prototype: upload → OCR → structured extraction → summary → timeline.
+2. Architecture diagram and setup/deployment documentation.
+3. Short demo script using synthetic/de-identified sample documents.
+
+### Evaluation priorities
+
+- AI utilization and reliable structured extraction
+- Clear Azure architecture
+- Usable, accessible experience
+- Healthcare impact and responsible limitations
+- Presentation/demo readiness
+
+## 2. Final technology stack
+
+| Layer | Technology | Responsibility |
+|---|---|---|
+| Frontend | React + TypeScript + Vite | Single-page web application |
+| UI | Tailwind CSS + shadcn/ui + lucide-react | Responsive accessible interface |
+| Upload | react-dropzone | Drag-and-drop and file selection |
+| API | FastAPI, Python 3.11+, Pydantic v2 | REST API and processing orchestration |
+| AI | Azure OpenAI, GPT-4o deployment | Schema-constrained extraction and patient-friendly summary generation |
+| OCR/document analysis | Azure AI Document Intelligence | Read/layout extraction from uploaded documents |
+| Object storage | Azure Blob Storage | Private storage of original files |
+| Relational data | Azure Database for PostgreSQL Flexible Server | Users, documents, extracted data, summaries, events |
+| Frontend hosting | Azure Static Web Apps | Vite production build |
+| Backend hosting | Azure Container Apps, Consumption plan | Containerized FastAPI service; scale to zero when idle |
+| Identity | Microsoft Entra External ID | Sign-in for external/demo users |
+| Observability | Application Insights via Azure Monitor / OpenTelemetry | Request traces, errors, dependency and performance telemetry, without PHI |
+| Local development | Docker Compose for PostgreSQL; local filesystem or Azurite optional | Develop without requiring every Azure resource |
+
+Use the current supported stable versions when implementation begins. Pin dependencies in lock files. The application must run locally without Azure credentials using explicit mock providers and synthetic sample data.
+
+## 3. User-facing capabilities
+
+### 3.1 Document intelligence
+
+Accept PDF, JPG, and PNG documents. Extract only information explicitly present:
+
+- Medicines: name, dosage, frequency, duration, route, instructions
+- Lab/test values: test name, value, unit, reference range, reported flag, date
+- Diagnoses/conditions, where stated
+- Document, visit, and report dates
+- Patient identifiers present in the document (do not infer missing values)
+- Per-field and overall confidence
+- Document type: prescription, lab report, discharge summary, diagnostic, or other
+
+For Azure Document Intelligence F0, communicate the two-page-per-request constraint in configuration/docs and ensure the UI/API reports when pages are omitted or the document exceeds configured limits. Keep page range handling behind the OCR provider interface so the demo can reject, split, or explicitly limit longer documents without pretending the entire file was analyzed. Do not silently truncate.
+
+### 3.2 Plain-language summary
+
+Generate a calm summary at roughly an 8th–10th grade reading level with:
+
+1. Overview
+2. Key findings
+3. What reported numbers mean, limited to the source reference ranges and facts
+4. Current medications as listed in this document (do not imply these are a complete/current medication list)
+5. Important notes and a prominent disclaimer
+
+Never diagnose, recommend a treatment or medication change, or claim that a result is safe/unsafe. Do not invent context, reference ranges, or missing facts. If data is unclear or low confidence, say so and direct the user to verify it with a qualified professional. The summary must end with this exact disclaimer:
+
+> Disclaimer: This summary is generated by AI for informational purposes only and is not a substitute for professional medical advice, diagnosis, or treatment. Always consult your doctor or qualified healthcare provider.
+
+### 3.3 Profile and timeline
+
+- One profile per authenticated account for the prototype.
+- Chronological timeline of document events, labs, diagnoses, and prescriptions.
+- Document detail view shows original file, extraction, confidence indicators, and summary.
+- Group timeline entries by date. Unknown dates must remain unknown rather than being inferred.
+
+### 3.4 Upload and document management
+
+- Drag/drop or click-to-upload, progress and processing state.
+- Document list with processing, completed, failed, and needs-review states.
+- View original, extracted data, summary, and processing limitations.
+- Reprocess a document with an idempotent endpoint and visible status.
+- Validate file type and size server-side. Generate storage names; do not trust user-provided paths or filenames.
+
+### 3.5 Optional bonus (after core flow)
+
+- English plus one regional language (Hindi, Telugu, or Tamil) for UI and summary.
+- FHIR R4 export bundle: Patient, MedicationRequest, Observation, Condition, DiagnosticReport, Composition. Mark mock identifiers clearly and do not imply ABDM connectivity.
+- Mock ABHA linking only if it is clearly labeled as a demo; no real ABHA integration in this scope.
+
+## 4. Architecture and processing flow
+
+```text
+Browser (React/Vite)
+  ├─ Entra External ID sign-in (OAuth 2.0/OIDC Authorization Code + PKCE)
+  └─ Bearer access token
+       ↓
+Azure Static Web Apps ── HTTPS ──> Azure Container Apps (FastAPI)
+                                      ├─ Verify token issuer, audience, signature, expiry, scopes
+                                      ├─ PostgreSQL: metadata, extracted data, summaries, events
+                                      ├─ Blob Storage: private original document
+                                      ├─ Document Intelligence: OCR/layout
+                                      ├─ Azure OpenAI: structured extraction + summary
+                                      └─ Application Insights: PHI-safe telemetry
+```
+
+Processing sequence:
+
+1. Authenticate and authorize the caller; derive user identity from the validated token, never from a client-supplied patient ID.
+2. Validate extension, MIME type, size, and basic file signature. Create a document record with `processing` status.
+3. Upload the original to a private Blob container using a generated key. Store the key, not a public URL.
+4. Call Document Intelligence through the OCR service interface. Record page count, pages processed, and any limitation/error.
+5. Send OCR text/layout to Azure OpenAI for structured extraction. Validate the response against Pydantic models; retry a bounded number of times on invalid output, then mark as failed or needs review.
+6. Generate the summary from validated structured data. Do not ask the model to infer clinical significance beyond supplied facts/reference ranges.
+7. Persist extraction, summary, and timeline events in one transaction where practical; mark document complete only after required outputs persist.
+8. Emit status and timing telemetry without document content, extracted values, prompts, tokens, filenames, or identifiers.
+
+Use a FastAPI background task only if it is reliable for the configured demo runtime. If request duration/runtime limits make in-process tasks unsuitable, use a Container Apps Job or a queue-backed worker as a later implementation phase. The API must expose durable processing status so a browser refresh does not lose the job state.
+
+## 5. Repository layout
+
+```text
+health-copilot/
+├── frontend/
+│   ├── src/
+│   │   ├── app/                     # Router and page-level views
+│   │   ├── components/              # Upload, document, timeline, summary UI
+│   │   ├── components/ui/           # shadcn/ui components
+│   │   ├── lib/                     # API client, auth, helpers
+│   │   └── types/                   # Shared frontend types
+│   ├── public/
+│   ├── package.json
+│   └── vite.config.ts
+├── backend/
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── config.py
+│   │   ├── auth/                    # Entra token validation and user context
+│   │   ├── db/                      # Async SQLAlchemy session and migrations
+│   │   ├── models/                  # SQLAlchemy and Pydantic models
+│   │   ├── routers/                 # Upload, documents, profile, timeline, FHIR
+│   │   ├── services/                # OCR, LLM, Blob, processing pipeline
+│   │   └── prompts/                 # Versioned extraction and summary prompts
+│   ├── requirements.txt or pyproject.toml
+│   └── Dockerfile
+├── infra/                           # Bicep templates and deployment parameters
+├── docs/
+│   ├── architecture.md
+│   ├── data-model.md
+│   ├── azure-student-deployment.md
+│   └── demo-script.md
+├── samples/                          # Synthetic/de-identified demo documents only
+├── docker-compose.yml
+└── README.md
+```
+
+Use Alembic migrations; do not rely on `create_all` for deployed environments. If the existing repository differs, inspect it first and adapt the layout without overwriting unrelated user work.
+
+## 6. Data contracts
+
+Use Pydantic v2 models as the canonical API and extraction schema. Fix mutable defaults with `default_factory`.
+
+```python
+from datetime import date
+from typing import Literal
+from pydantic import BaseModel, Field
+
+class Medication(BaseModel):
+    name: str
+    dosage: str | None = None
+    frequency: str | None = None
+    duration: str | None = None
+    route: str | None = None
+    instructions: str | None = None
+    confidence: float = Field(ge=0, le=1)
+
+class LabResult(BaseModel):
+    test_name: str
+    value: str | None = None
+    unit: str | None = None
+    reference_range: str | None = None
+    flag: Literal["H", "L", "N", "HH", "LL"] | None = None
+    date: date | None = None
+    confidence: float = Field(ge=0, le=1)
+
+class Diagnosis(BaseModel):
+    name: str
+    date: date | None = None
+    confidence: float = Field(ge=0, le=1)
+
+class PatientInfo(BaseModel):
+    name: str | None = None
+    age: str | None = None
+    gender: str | None = None
+    confidence: float = Field(ge=0, le=1)
+
+class ExtractedData(BaseModel):
+    document_type: Literal[
+        "prescription", "lab_report", "discharge_summary", "diagnostic", "other"
+    ]
+    patient_info: PatientInfo | None = None
+    medications: list[Medication] = Field(default_factory=list)
+    lab_results: list[LabResult] = Field(default_factory=list)
+    diagnoses: list[Diagnosis] = Field(default_factory=list)
+    document_date: date | None = None
+    notes: str | None = None
+    overall_confidence: float = Field(ge=0, le=1)
+```
+
+Confidence applies to each extracted item/field. A patient-level confidence value may be omitted if no patient fields were found. Preserve source text spans or page references where possible so a user can verify results against the original.
+
+### Relational entities
+
+- `UserProfile`: internal UUID, Entra subject/issuer identifiers, preferred language, created/updated timestamps. Never use email as the authorization key.
+- `Document`: UUID, owner profile ID, generated blob key, original display name (stored only if needed; exclude from telemetry), MIME type, size, page count, pages processed, document type, status, OCR text (encrypted at rest; access restricted), extracted JSONB, error code, created/updated timestamps.
+- `HealthSummary`: UUID, document ID, language, summary text, prompt version, model deployment name, created timestamp.
+- `TimelineEvent`: UUID, owner profile ID, type, nullable event date, title, description, related document ID, JSONB data, created timestamp.
+
+All queries and mutations must be scoped to the authenticated owner. Return 404 for resources owned by another user. Use JSONB for versioned extraction payloads while retaining relational columns for ownership, status, IDs, and dates.
+
+## 7. FastAPI API contract
+
+Prefix routes with `/api`. Protect all user/document endpoints with bearer-token validation except `/health/live` and `/health/ready`.
+
+```text
+POST   /api/documents
+       multipart/form-data file; returns { document_id, status: "processing" }
+
+GET    /api/documents
+       list current user's documents (pagination)
+
+GET    /api/documents/{document_id}
+       status, extraction, summary, page coverage/limitations, safe error details
+
+GET    /api/documents/{document_id}/content-url
+       short-lived, read-only access URL for the authorized user's private blob
+
+POST   /api/documents/{document_id}/reprocess
+       enqueue/restart processing; returns current processing status
+
+GET    /api/profile/me
+PATCH  /api/profile/me
+
+GET    /api/timeline
+       current user's events, chronological, paginated
+
+GET    /api/profile/me/fhir
+       optional valid FHIR R4 Bundle JSON
+
+GET    /health/live
+GET    /health/ready
+```
+
+Use API versioning if the contract will change after the initial release. Document schemas through OpenAPI. Avoid returning raw OCR text by default; expose it only when needed for the user’s verification workflow, protected by ownership checks.
+
+## 8. Azure integration requirements
+
+### Azure OpenAI
+
+- Use a GPT-4o deployment selected in the user's subscription and region; configure by deployment name, not assumed public model name.
+- Use Microsoft Entra managed identity in Azure where supported. Use environment-based credentials only for local development.
+- Keep endpoint, deployment, API version, and max output configurable.
+- Prefer schema-constrained JSON output when supported by the deployment; always validate with Pydantic server-side.
+- Do not put PHI in Application Insights, exception messages, request traces, or prompt-debug logs.
+- Handle rate limits, quota exhaustion, unavailable deployments, and transient errors with bounded retry/backoff and a useful non-sensitive status.
+
+### Azure AI Document Intelligence
+
+- Implement an `OCRProvider` interface and an Azure adapter.
+- Use a supported Read/Layout model appropriate to the selected SDK/API version.
+- Enforce service page/file-size constraints before submission and return explicit coverage information.
+- Do not claim handwriting support is reliable; preserve uncertainty and flag low-confidence output.
+
+### Azure Blob Storage
+
+- Private container; public access disabled.
+- Use managed identity and least-privilege data-plane permissions in Azure.
+- Generate random blob keys; never use a supplied filename as a path.
+- Issue short-lived, read-only SAS URLs only after authorization; prefer user delegation SAS where configured.
+- Set retention/deletion behavior for demo data and provide a delete-document flow if included.
+
+### PostgreSQL
+
+- Use TLS-required connections and least-privilege credentials/identity where supported.
+- Store secrets in Container Apps secrets or Key Vault if configured; never commit secrets.
+- Configure connection pooling for serverless/container scaling; run migrations as a deployment step.
+- Apply backups only as needed for the disposable demo and understand backup storage may incur cost.
+
+### Entra External ID
+
+- Configure a single-page application using OAuth 2.0/OIDC Authorization Code flow with PKCE.
+- API validates signature against issuer JWKS and checks issuer, audience, expiry, and required scope/role.
+- Never trust a user ID, email, or patient ID sent in a request body as proof of identity.
+- Document local mock-auth mode clearly and make it impossible to enable accidentally in a deployed environment.
+
+### Application Insights
+
+- Use OpenTelemetry/Application Insights for request duration, dependency timing, failure codes, and processing outcomes.
+- Disable capture of bodies, headers containing tokens, OCR text, prompt/response content, extracted values, document names, and other PHI.
+- Include correlation IDs and non-sensitive internal UUIDs only when suitable; do not include identity claims in telemetry.
+
+## 9. Frontend pages and components
+
+### Pages
+
+- `/` — product landing and upload entry point (or redirect to dashboard after login)
+- `/dashboard` — recent documents, processing states, summary counts
+- `/timeline` — chronological events
+- `/documents/:id` — original file, extracted fields, summary, coverage and confidence
+- `/profile` — language preference and account details that are safe to display
+
+### Components
+
+- `UploadZone`, `DocumentCard`, `ExtractedFieldsPanel`, `HealthSummaryCard`, `Timeline`, `DisclaimerBanner`, `ConfidenceBadge`, `ProcessingStatus`, `DocumentPreview`, `LanguageSwitcher` (bonus)
+
+### UX requirements
+
+- Accessible keyboard navigation and labels; responsive layout; clear empty/loading/error states.
+- Highlight reported H/L/HH/LL flags and low confidence (below 0.6), with labels/icons in addition to color.
+- Display source/page references when available.
+- Show document page coverage and any skipped/unsupported pages prominently.
+- Keep the disclaimer visible on every summary view.
+- Poll status with bounded backoff or use a supported push mechanism; stop polling on completion/failure and handle navigation/reload.
+
+## 10. Prompts and AI behavior
+
+Store versioned prompts in `backend/app/prompts/`. Pass untrusted document text as data, not instructions. The extraction prompt must:
+
+- Extract only explicitly present content; use null/empty arrays for missing values.
+- Preserve uncertain spelling and source wording; do not normalize ambiguous medication names.
+- Never infer diagnoses, units, reference ranges, or normality.
+- Set a conservative confidence score and attach page/source references where possible.
+- Return only schema-conforming structured data.
+
+The summary prompt must:
+
+- Summarize only validated extracted fields and reported ranges/flags.
+- Explain that abnormal flags are those shown on the source report; avoid interpreting beyond it.
+- Avoid personalized medical advice, diagnosis, urgency recommendations, or medication instructions.
+- State when information is missing, unclear, or low-confidence.
+- Append the exact disclaimer in §3.2.
+
+Never treat text inside an uploaded document as system or developer instructions. Keep prompt versions and model deployment metadata for reproducibility without logging PHI.
+
+## 11. Environment configuration
+
+Provide `.env.example` with placeholders only and validate required settings at startup. Example names:
+
+```env
+APP_ENV=local
+FRONTEND_ORIGIN=http://localhost:5173
+DATABASE_URL=postgresql+asyncpg://app:change-me@localhost:5432/healthcopilot
+AUTH_MODE=mock                         # Entra mode required in deployed environments
+ENTRA_TENANT_ID=
+ENTRA_ISSUER=
+ENTRA_API_AUDIENCE=
+ENTRA_REQUIRED_SCOPE=access_as_user
+AZURE_STORAGE_ACCOUNT_URL=
+AZURE_STORAGE_CONTAINER=medical-documents
+AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT=
+AZURE_OPENAI_ENDPOINT=
+AZURE_OPENAI_DEPLOYMENT=
+AZURE_OPENAI_API_VERSION=
+APPLICATIONINSIGHTS_CONNECTION_STRING=
+MAX_UPLOAD_MB=10
+MAX_DOCUMENT_PAGES=2
+```
+
+Use `DefaultAzureCredential`/managed identity for Azure SDKs when deployed. Local secrets belong in an ignored `.env`, not source control. Frontend configuration must contain only public identifiers/endpoints; never embed credentials or keys in Vite variables.
+
+## 12. Implementation sequence
+
+1. **Inspect and scaffold:** inspect existing files and git state; preserve unrelated work. Create Vite React TypeScript frontend and FastAPI backend, basic health routes, formatting/lint configuration.
+2. **Contracts and persistence:** implement Pydantic schemas, SQLAlchemy models, Alembic, owner-scoped repository functions, and local PostgreSQL Compose setup.
+3. **Local happy path:** implement mock OCR and mock LLM providers, upload flow, status polling, detail view, summary display, and timeline using synthetic samples.
+4. **Azure adapters:** add Document Intelligence, Azure OpenAI, Blob Storage, managed identity, config validation, and useful provider errors behind interfaces.
+5. **Authentication and isolation:** add Entra External ID SPA setup and FastAPI JWT validation; enforce owner checks on every document/profile/timeline query.
+6. **Safety and privacy:** harden file validation, private blob access, PHI-safe telemetry, prompt injection handling, confidence/page coverage UI, exact disclaimer.
+7. **Deployment:** add Dockerfile, Bicep infrastructure for Container Apps, PostgreSQL, storage, monitoring, and Static Web Apps configuration. Make expensive resources opt-in and document cleanup.
+8. **Polish/demo:** optional language and FHIR features; architecture diagram, Azure student deployment guide, cost-control notes, synthetic demo script.
+
+Do not start bonus features until upload → OCR → extraction → summary → timeline works with the mock providers and Azure provider configuration is documented.
+
+## 13. Student-credit deployment and cost controls
+
+Target Azure for Students, subject to current eligibility, service availability, quotas, and regional pricing. Microsoft currently advertises US$100 credit for 12 months; the account can be disabled when the credit is exhausted or expires unless upgraded. Verify the offer and per-service limits in the actual subscription before deploying.
+
+- Prefer Static Web Apps free tier for the Vite frontend.
+- Use Container Apps Consumption with minimum replicas set to zero, low max replicas, and no always-on workload profile.
+- Check whether Azure Database for PostgreSQL Flexible Server student free allowance is available in the selected subscription/region. Stop or delete it when not in use; verify current stop/start and billing behavior.
+- Use Document Intelligence F0 for early development only if its page limits fit the sample. Do not assume it processes full multi-page records.
+- Azure OpenAI is subject to regional deployment availability, approval/quota, model availability, and token charges; confirm access before making it a required demo dependency. Keep mock mode working.
+- Blob capacity/transactions, networking, logs/retention, container registry, database backup, and outbound traffic can incur costs. Keep sample data small and telemetry retention short.
+- Configure an Azure budget alert and review Cost Management before/after each demo. A budget alert is not a hard spending cap.
+- Include a cleanup script or explicit teardown instructions for billable resources. Never upgrade the student subscription to pay-as-you-go automatically.
+
+## 14. Security, privacy, and limitations
+
+- Use synthetic or de-identified sample records in the prototype.
+- TLS for network traffic; encryption at rest using Azure-managed encryption by default.
+- Private storage and least privilege; authorization per owner for every record and signed blob URL.
+- Do not log PHI, tokens, prompts, OCR output, extracted values, summaries, uploaded file contents, or identifiable filenames.
+- Define and document deletion/retention for uploaded files and extracted records.
+- Display the exact medical disclaimer in every summary.
+- Show low-confidence fields below 0.6 as requiring verification; never silently present them as facts.
+- This educational prototype is not certified for clinical use and must not be represented as one.
+
+## 15. Acceptance criteria
+
+- A synthetic PDF or image can be uploaded locally and its durable status is visible after reload.
+- The mock pipeline produces schema-valid extraction, summary, document detail, and timeline entry.
+- Azure provider adapters are selectable through configuration and report missing access/quota clearly.
+- User routes require authenticated identity in deployed mode; data access is owner-scoped.
+- Original documents are stored privately; browser access is short-lived and authorized.
+- Page limits, unsupported file constraints, confidence, and failed processing are visible to the user.
+- The summary shows the exact disclaimer and does not invent facts or provide medical advice.
+- Telemetry excludes document content and identifying health information.
+- README explains local run, Entra/Azure setup, deployment, costs, and resource cleanup.
+
+## 16. Demo script
+
+1. Sign in with the demo account and show the empty dashboard.
+2. Upload a synthetic lab report of no more than the configured supported page count.
+3. Show processing status, then open the completed record.
+4. Compare the original report with extracted values, confidence, and source/page references.
+5. Show a cautious plain-language summary and persistent disclaimer.
+6. Open the timeline and show the dated event.
+7. Show a failed/low-confidence or page-limit case and how the UI communicates it.
+8. Optionally show language switching or a mock FHIR export.
+
+## 17. Backend-first implementation and user-editable records
+
+**Current build priority:** complete the backend data contracts, authorization, persistence, upload lifecycle, processing adapters, and correction APIs before polishing or expanding the frontend. The frontend is an early visual preview and can be revised after the API/data model is stable.
+
+User corrections are first-class data. Authenticated users must be able to edit profile display name and preferences; document display name, type, and date; every extracted patient, medication, lab, and diagnosis field; generated summary text/language; and timeline event title, date, description, and structured data. Validate all edits against the same schema as generated data and enforce owner access on every operation.
+
+Keep a baseline of machine-extracted data and persist manual overrides separately. Reprocessing must not silently erase user corrections. Apply stored overrides to newly extracted data, allow users to reset overrides to the latest machine baseline, and preserve manually edited timeline events. When users change extracted data, provide an explicit action to generate a fresh summary from the corrected values. Any user-edited summary must retain the exact disclaimer in §3.2.
+
+The local mock OCR/AI providers must never fabricate medical facts. They should make it possible to build the API and UI before cloud credentials are available and clearly indicate that real extraction has not run.
+
+---
+
+**End of build specification.**
