@@ -2,6 +2,7 @@ type AuthConfiguration = {
   clientId: string
   authority: string
   scope: string
+  userFlow?: string
 }
 
 type OpenIdConfiguration = {
@@ -20,11 +21,16 @@ function configuration(): AuthConfiguration | null {
   const clientId = import.meta.env.VITE_ENTRA_CLIENT_ID?.trim()
   const authority = import.meta.env.VITE_ENTRA_AUTHORITY?.trim().replace(/\/$/, '')
   const scope = import.meta.env.VITE_ENTRA_API_SCOPE?.trim()
-  return clientId && authority && scope ? { clientId, authority, scope } : null
+  const userFlow = import.meta.env.VITE_ENTRA_USER_FLOW?.trim()
+  return clientId && authority && scope ? { clientId, authority, scope, userFlow } : null
 }
 
 export function authEnabled(): boolean {
   return configuration() !== null
+}
+
+export function signupEnabled(): boolean {
+  return Boolean(configuration()?.userFlow)
 }
 
 export function currentAccessToken(): string | null {
@@ -61,7 +67,7 @@ async function discover(authority: string): Promise<OpenIdConfiguration> {
   return response.json() as Promise<OpenIdConfiguration>
 }
 
-export async function beginSignIn(): Promise<void> {
+async function beginAuthentication(): Promise<void> {
   const config = configuration()
   if (!config) throw new Error('Set the Entra client ID, authority, and API scope to enable sign-in.')
   const oidc = await discover(config.authority)
@@ -73,7 +79,7 @@ export async function beginSignIn(): Promise<void> {
   sessionStorage.setItem(transactionKey, JSON.stringify({ verifier, state, nonce }))
 
   const url = new URL(oidc.authorization_endpoint)
-  url.search = new URLSearchParams({
+  const authorizationParams: Record<string, string> = {
     client_id: config.clientId,
     response_type: 'code',
     redirect_uri: import.meta.env.VITE_ENTRA_REDIRECT_URI || window.location.origin,
@@ -83,8 +89,22 @@ export async function beginSignIn(): Promise<void> {
     nonce,
     code_challenge: challenge,
     code_challenge_method: 'S256',
-  }).toString()
+  }
+  if (config.userFlow) authorizationParams.p = config.userFlow
+  url.search = new URLSearchParams(authorizationParams).toString()
   window.location.assign(url.toString())
+}
+
+export async function beginSignIn(): Promise<void> {
+  return beginAuthentication()
+}
+
+export async function beginSignUp(): Promise<void> {
+  const config = configuration()
+  if (!config?.userFlow) {
+    throw new Error('Set VITE_ENTRA_USER_FLOW to enable account creation.')
+  }
+  return beginAuthentication()
 }
 
 function jwtPayload(token: string): Record<string, unknown> {

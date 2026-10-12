@@ -7,7 +7,7 @@ import {
   LogOut, Plus, RefreshCw, ShieldCheck, Trash2, Upload, UserRound, X,
 } from 'lucide-react'
 import { api, documentKindLabel, documentStatusLabel, formatDate } from './lib/api'
-import { authEnabled, beginSignIn, completeSignIn, currentAccessToken, signOut } from './lib/auth'
+import { authEnabled, beginSignIn, beginSignUp, completeSignIn, currentAccessToken, signupEnabled, signOut } from './lib/auth'
 import type { ApiDocument, DocumentKind, DocumentListItem, Profile, TimelineEvent } from './types'
 import { I18nProvider, languageOptions, normalizeLanguage, translate, useI18n } from './i18n'
 
@@ -126,8 +126,15 @@ function App() {
     }
   }
 
+  const signup = async () => {
+    setAuthError('')
+    try { await beginSignUp() } catch (error) {
+      setAuthError(error instanceof Error ? error.message : tr('Could not begin account creation.'))
+    }
+  }
+
   if (!authReady) return <div className="live-loading"><LoaderCircle className="spin" /> {tr('Preparing your secure session…')}</div>
-  if (authOn && !token) return <I18nProvider language={language}><main className="auth-screen"><div className="auth-card"><span className="brand-mark"><HeartPulse size={22} /></span><h1>{tr('Welcome to Carefolio')}</h1><p>{tr('Sign in to view and manage your private health documents.')}</p>{authError && <div className="live-error">{authError}</div>}<button className="button button-primary" onClick={() => void login()}><LogIn size={17} /> {tr('Sign in with Microsoft')}</button><small>{tr('Your sign-in is handled by your configured Entra External ID tenant.')}</small></div></main></I18nProvider>
+  if (authOn && !token) return <I18nProvider language={language}><main className="auth-screen"><div className="auth-card"><span className="brand-mark"><HeartPulse size={22} /></span><h1>{tr('Welcome to Carefolio')}</h1><p>{tr('Sign in to view and manage your private health documents.')}</p>{authError && <div className="live-error">{authError}</div>}<button className="button button-primary" onClick={() => void login()}><LogIn size={17} /> {tr('Sign in with Microsoft')}</button>{signupEnabled() && <button className="button button-secondary" onClick={() => void signup()}>{tr('Create account')}</button>}<small>{tr('Your sign-in is handled by your configured Entra External ID tenant.')}</small></div></main></I18nProvider>
 
   const changeLanguage = async (value: string) => {
     const next = normalizeLanguage(value)

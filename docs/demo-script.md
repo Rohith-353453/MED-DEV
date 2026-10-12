@@ -4,8 +4,8 @@ Use only [`samples/synthetic-lab-report.pdf`](../samples/synthetic-lab-report.pd
 
 ## Prepare
 
-1. Start PostgreSQL and the FastAPI service with `docker compose up --build`, or start the backend with the commands in [`backend/README.md`](../backend/README.md).
-2. In a second terminal, copy `frontend/.env.example` to `frontend/.env` if needed, then run `npm install` and `npm run dev` from `frontend/`.
+1. Start PostgreSQL and the FastAPI service with `docker compose up --build`, or start the backend with the commands in [`backend/README.md`](../backend/README.md). If the deployed Azure API is unavailable, use the local backend; do not point the frontend at that API.
+2. In a second terminal, copy `frontend/.env.example` to `frontend/.env` if needed, confirm `VITE_API_BASE_URL=/api`, then run `npm install` and `npm run dev` from `frontend/`. See the full local fallback in [`hackathon-demo.md`](hackathon-demo.md).
 3. Open the Vite URL and confirm the profile says **Local demo**. With local mock providers, no Entra or Azure keys are needed.
 
 ## Show the product

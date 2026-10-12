@@ -29,7 +29,7 @@ Microsoft's guides: [manage Azure OpenAI quota](https://learn.microsoft.com/en-u
 
 3. Build and push the backend image to a registry the Container Apps environment can pull from. Use a versioned tag, not `latest`. The repository has a backend Dockerfile but does not provision a container registry or build/push pipeline.
 
-4. Register/configure Entra External ID applications. Configure an SPA app registration with Authorization Code + PKCE, the deployed Static Web App origin, and the API delegated scope `access_as_user`. The API audience and issuer must exactly match the access token it receives. Add the same client ID, authority, and scope to `frontend/.env` before building the frontend.
+4. Register/configure Entra External ID applications. Configure the API with the delegated scope `access_as_user`, then create a **Sign up and sign in** External ID user flow and associate it with the SPA app. Configure the SPA app registration with Authorization Code + PKCE and the deployed Static Web App origin. The API audience and issuer must exactly match the access token it receives. Add the same client ID, authority, API scope, user-flow name, and redirect URI to `frontend/.env` before building the frontend. The user-flow name is sent as the `p` authorization parameter; when it is configured, the deployed sign-in screen includes **Create account**.
 
 5. Copy `infra/parameters.example.json` to a local parameters file, edit every `<placeholder>`, and choose unique lowercase resource names. Keep the edited file and password out of Git. The template creates a Static Web App shell and uses its generated hostname for API CORS. It remains empty until it is linked to a source repository or deployed through the Static Web Apps CLI.
 

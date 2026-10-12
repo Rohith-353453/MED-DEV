@@ -24,6 +24,11 @@ docker compose up --build
 
 The demo profile is created on the first authenticated request. In local `AUTH_MODE=mock`, requests are associated with the configured `MOCK_USER_SUB`. This mode is rejected automatically when `APP_ENV` is a deployed environment.
 
+When the Azure API is unavailable, use the repository-root Docker Compose setup and
+the local frontend configuration described in [`docs/hackathon-demo.md`](../docs/hackathon-demo.md).
+That path intentionally uses mock OCR/AI providers and synthetic data only; it does
+not validate Azure processing or provide production identity isolation.
+
 For the full local demo, start the backend and frontend, then upload `samples/synthetic-lab-report.pdf`. The mock flow produces only the fictional facts embedded in this marked fixture and clearly labels it synthetic. Other documents are not read by mock OCR. OpenAPI is available at `http://localhost:8000/docs` for direct API use.
 
 ## API outline
