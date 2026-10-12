@@ -94,3 +94,16 @@ class TimelineEvent(Base):
     is_user_edited: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class AuditLog(Base):
+    """Append-only user activity metadata; intentionally has no cascading foreign keys."""
+
+    __tablename__ = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=new_id)
+    actor_profile_id: Mapped[str] = mapped_column(String(36), index=True)
+    document_id: Mapped[str | None] = mapped_column(String(36), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(40), index=True)
+    details: Mapped[dict] = mapped_column(JSON_VALUE, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, index=True)

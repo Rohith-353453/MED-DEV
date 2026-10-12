@@ -192,6 +192,21 @@ class PaginatedTimeline(StrictModel):
     offset: int
 
 
+class AuditLogRead(StrictModel):
+    id: str
+    document_id: str | None
+    action: str
+    details: dict
+    created_at: datetime
+
+
+class PaginatedAuditLogs(StrictModel):
+    items: list[AuditLogRead]
+    total: int
+    limit: int
+    offset: int
+
+
 class UploadAccepted(StrictModel):
     document_id: str
     status: DocumentStatus

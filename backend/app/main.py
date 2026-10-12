@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from app.db import Base, SessionLocal, engine
 from app import models  # noqa: F401 - register SQLAlchemy models before metadata setup
 from app.models import Document
-from app.routers import documents, fhir, profiles, timeline
+from app.routers import audit, documents, fhir, profiles, timeline
 from app.services.pipeline import process_document
 from app.services.queue import close_document_queue
 from app.services.storage import close_storage
@@ -79,6 +79,7 @@ app.add_middleware(
 )
 app.include_router(profiles.router, prefix=settings.api_prefix)
 app.include_router(documents.router, prefix=settings.api_prefix)
+app.include_router(audit.router, prefix=settings.api_prefix)
 app.include_router(timeline.router, prefix=settings.api_prefix)
 app.include_router(fhir.router, prefix=settings.api_prefix)
 

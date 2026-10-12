@@ -12,7 +12,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    Base.metadata.create_all(bind=op.get_bind())
+    # Keep the original baseline stable as later revisions own newly added tables.
+    tables = [table for table in Base.metadata.sorted_tables if table.name != "audit_logs"]
+    Base.metadata.create_all(bind=op.get_bind(), tables=tables)
 
 
 def downgrade() -> None:

@@ -12,7 +12,7 @@ from sqlalchemy.orm import selectinload
 from app.auth import CurrentProfile
 from app.config import get_settings
 from app.db import get_session
-from app.models import Document, HealthSummary, TimelineEvent
+from app.models import AuditLog, Document, HealthSummary, TimelineEvent
 from app.schemas import (
     BlobAccess,
     DocumentListItem,
@@ -78,6 +78,23 @@ def count_pdf_pages(content: bytes, mime_type: str) -> int | None:
         raise HTTPException(status_code=422, detail="Could not read PDF page information") from exc
 
 
+def record_audit(
+    session: AsyncSession,
+    actor_profile_id: str,
+    document_id: str | None,
+    action: str,
+    details: dict,
+) -> None:
+    session.add(
+        AuditLog(
+            actor_profile_id=actor_profile_id,
+            document_id=document_id,
+            action=action,
+            details=details,
+        )
+    )
+
+
 @router.post("", response_model=UploadAccepted, status_code=status.HTTP_202_ACCEPTED)
 async def upload_document(
     background_tasks: BackgroundTasks,
@@ -123,6 +140,13 @@ async def upload_document(
             },
         )
         session.add(document)
+        record_audit(
+            session,
+            profile.id,
+            document_id,
+            "document.uploaded",
+            {"mime_type": mime_type, "size_bytes": len(content), "page_count": pages},
+        )
         await session.commit()
     except Exception:
         await session.rollback()
@@ -188,6 +212,16 @@ async def update_document(
         raise HTTPException(status_code=422, detail="Display name cannot be null")
     if "document_type" in changes and changes["document_type"] is None:
         raise HTTPException(status_code=422, detail="Document type cannot be null")
+    changed_fields = [
+        field
+        for field in ("display_name", "document_type", "document_date")
+        if field in changes and changes[field] != getattr(document, field)
+    ]
+    if (
+        "extracted_data" in changes
+        and payload.extracted_data.model_dump(mode="json") != document.extracted_data
+    ):
+        changed_fields.append("extracted_data")
     for field in ("display_name", "document_type", "document_date"):
         if field in changes:
             setattr(document, field, changes[field])
@@ -241,6 +275,8 @@ async def update_document(
         if event:
             event.title = document.display_name
             event.is_user_edited = True
+    if changed_fields:
+        record_audit(session, profile.id, document.id, "document.edited", {"changed_fields": changed_fields})
     await session.commit()
     return await get_owned_document(session, profile.id, document_id)
 
@@ -258,6 +294,7 @@ async def reset_extraction_overrides(
     document.document_type = extracted.document_type
     document.document_date = extracted.document_date
     await rebuild_document_events(session, document, extracted)
+    record_audit(session, profile.id, document.id, "document.edited", {"changed_fields": ["extracted_data"]})
     await session.commit()
     return await get_owned_document(session, profile.id, document_id)
 
@@ -274,6 +311,7 @@ async def reprocess_document(
         raise HTTPException(status_code=409, detail="Document is already processing")
     document.status = "queued"
     document.processing_error = None
+    record_audit(session, profile.id, document.id, "document.reprocessed", {})
     await session.commit()
     try:
         await enqueue_document_processing(background_tasks, document.id)
@@ -306,6 +344,14 @@ async def download_content(document_id: str, profile: CurrentProfile, session: S
         content = await get_storage().get(document.storage_key)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Stored document is unavailable") from exc
+    record_audit(
+        session,
+        profile.id,
+        document.id,
+        "document.downloaded",
+        {"size_bytes": len(content), "mime_type": document.mime_type},
+    )
+    await session.commit()
     filename = quote(document.display_name, safe="")
     return Response(
         content=content,
@@ -342,6 +388,7 @@ async def update_summary(
     if payload.language is not None:
         summary.language = payload.language
     summary.is_user_edited = True
+    record_audit(session, profile.id, document_id, "summary.edited", {"summary_id": summary.id})
     await session.commit()
     await session.refresh(summary)
     return summary
@@ -396,5 +443,6 @@ async def delete_document(document_id: str, profile: CurrentProfile, session: Se
     except FileNotFoundError:
         pass
     await session.execute(delete(TimelineEvent).where(TimelineEvent.document_id == document.id))
+    record_audit(session, profile.id, document.id, "document.deleted", {})
     await session.delete(document)
     await session.commit()
