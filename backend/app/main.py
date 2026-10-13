@@ -11,11 +11,10 @@ settings = get_settings()
 configure_telemetry()
 
 from fastapi import FastAPI  # noqa: E402 - telemetry configured before framework import
-from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
-
 from app.db import Base, SessionLocal, engine
 from app import models  # noqa: F401 - register SQLAlchemy models before metadata setup
 from app.models import Document
+from app.middleware import wrap_with_cors
 from app.routers import audit, documents, fhir, profiles, timeline
 from app.services.pipeline import process_document
 from app.services.queue import close_document_queue
@@ -64,33 +63,31 @@ async def lifespan(app: FastAPI):
     await engine.dispose()
 
 
-app = FastAPI(
+api = FastAPI(
     title="Carefolio Health Copilot API",
     description="Private document organization and cautious health information summaries.",
     version="0.1.0",
     lifespan=lifespan,
 )
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.cors_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type"],
-)
-app.include_router(profiles.router, prefix=settings.api_prefix)
-app.include_router(documents.router, prefix=settings.api_prefix)
-app.include_router(audit.router, prefix=settings.api_prefix)
-app.include_router(timeline.router, prefix=settings.api_prefix)
-app.include_router(fhir.router, prefix=settings.api_prefix)
+api.include_router(profiles.router, prefix=settings.api_prefix)
+api.include_router(documents.router, prefix=settings.api_prefix)
+api.include_router(audit.router, prefix=settings.api_prefix)
+api.include_router(timeline.router, prefix=settings.api_prefix)
+api.include_router(fhir.router, prefix=settings.api_prefix)
 
 
-@app.get("/health/live", tags=["health"])
+@api.get("/health/live", tags=["health"])
 async def live() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/health/ready", tags=["health"])
+@api.get("/health/ready", tags=["health"])
 async def ready() -> dict[str, str]:
     async with engine.connect() as connection:
         await connection.exec_driver_sql("SELECT 1")
     return {"status": "ready"}
+
+
+# Keep CORS outside FastAPI's ServerErrorMiddleware so browser clients can read
+# unexpected 500 responses instead of seeing a generic network failure.
+app = wrap_with_cors(api, settings.cors_origins)

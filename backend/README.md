@@ -41,7 +41,7 @@ For the full local demo, start the backend and frontend, then upload `samples/sy
 - `GET /api/profile/me/fhir` — prototype FHIR Bundle export.
 - `GET /health/live`, `GET /health/ready`.
 
-All user endpoints use bearer authentication. Entra mode validates the access token signature, issuer, audience, expiration, subject, and required scope/role. Set `ENTRA_JWKS_URI` when the External ID tenant exposes signing keys at a custom URL; otherwise it is derived from the configured issuer. Data is always queried with the authenticated profile ID. Requests for another owner's document return 404.
+All user endpoints use bearer authentication. Firebase mode validates Firebase ID tokens against the configured project ID and Google's signing keys. Data is always queried with the authenticated profile ID. Requests for another owner's document return 404.
 
 The API retains an extraction baseline and top-level manual overrides. Reprocessing applies those overrides over the new machine result. A user can reset to the latest baseline explicitly. Timeline events corrected by a user are retained when AI events are rebuilt.
 
@@ -49,7 +49,7 @@ The API retains an extraction baseline and top-level manual overrides. Reprocess
 
 Copy `.env.example` values into local secrets or configure Container Apps secrets/managed identity. Set:
 
-- `AUTH_MODE=entra` and Entra tenant, issuer, audience, and required scope.
+- `AUTH_MODE=firebase` and `FIREBASE_PROJECT_ID` matching the Firebase project configured in the frontend.
 - `STORAGE_PROVIDER=azure` and storage account URL; grant the container app managed identity Blob Data Contributor access.
 - `QUEUE_PROVIDER=azure` and `AZURE_STORAGE_QUEUE_ACCOUNT_URL`; provision the configured queue before starting the API. The API identity needs Storage Queue Data Message Sender, and the worker identity needs Storage Queue Data Message Processor plus Blob Data Reader. Run a separate worker process with `python -m app.worker` using the same image and settings. Queue messages contain only document IDs; unacknowledged messages become available again after the visibility timeout if a worker exits unexpectedly.
 - `OCR_PROVIDER=azure` and Document Intelligence endpoint; use a key only for local development or managed identity in Azure.
