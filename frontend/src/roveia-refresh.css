@@ -32,6 +32,8 @@ button:focus-visible, a:focus-visible, select:focus-visible, input:focus-visible
 .sidebar > .workspace-label, .sidebar > .sidebar-divider, .sidebar-bottom .privacy-card { display: none; }
 .brand { padding: 0; gap: 9px; color: #101010; font-size: 15px; font-weight: 800; letter-spacing: -.8px; white-space: nowrap; }
 .brand:hover { color: #101010; }
+.site-logo { height: 26px; width: auto; object-fit: contain; border-radius: 4px; display: inline-block; vertical-align: middle; }
+.auth-brand-logo { height: 46px; width: auto; max-width: 220px; object-fit: contain; margin: 0 auto 10px; display: block; border-radius: 6px; }
 .brand-mark { height: 30px; width: 30px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #eaf3ff; color: var(--blue); }
 .brand-dot { color: var(--blue); }
 .main-nav { display: flex; flex-direction: row; align-items: center; gap: 3px; }
