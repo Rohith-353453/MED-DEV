@@ -8,7 +8,14 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const token = currentAccessToken()
   if (token) headers.set('Authorization', `Bearer ${token}`)
   if (init.body && !(init.body instanceof FormData)) headers.set('Content-Type', 'application/json')
-  const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
+  const url = `${API_BASE_URL}${path}`
+  let response: Response
+  try {
+    response = await fetch(url, { ...init, headers })
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : 'Unknown network error'
+    throw new Error(`Could not reach the Carefolio API (${url}). ${reason}`)
+  }
   if (response.status === 204) return undefined as T
   const contentType = response.headers.get('content-type') ?? ''
   const result = contentType.includes('application/json') ? await response.json() : await response.text()
