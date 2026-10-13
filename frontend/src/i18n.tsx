@@ -1,5 +1,6 @@
 import { createContext, useContext, useMemo, type ReactNode } from 'react'
 import { semanticTranslations } from './semanticTranslations'
+import { featureTranslations } from './featureTranslations'
 
 export type AppLanguage = 'en' | 'hi' | 'ta' | 'te' | 'ml'
 type Values = Record<string, string | number>
@@ -315,10 +316,10 @@ export function normalizeLanguage(value: string | null | undefined): AppLanguage
 export function translate(language: AppLanguage, message: string, values: Values = {}): string {
   const semanticKey = semanticKeyByMessage[message]
   let result = language === 'hi'
-    ? (hindi[message] ?? (semanticKey ? semanticTranslations.hi?.[semanticKey] : undefined) ?? message)
+    ? (hindi[message] ?? featureTranslations.hi?.[message] ?? (semanticKey ? semanticTranslations.hi?.[semanticKey] : undefined) ?? message)
     : language === 'en'
       ? message
-      : (directTranslations[language]?.[message] ?? (semanticKey ? semanticTranslations[language]?.[semanticKey] : undefined) ?? message)
+      : (directTranslations[language]?.[message] ?? featureTranslations[language]?.[message] ?? (semanticKey ? semanticTranslations[language]?.[semanticKey] : undefined) ?? message)
   for (const [key, value] of Object.entries(values)) result = result.split(`{${key}}`).join(String(value))
   return result
 }

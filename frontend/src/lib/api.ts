@@ -39,6 +39,7 @@ export const api = {
   updateSummary: (documentId: string, summaryId: string, summary_text: string, language: string) =>
     request<Summary>(`/documents/${encodeURIComponent(documentId)}/summary/${encodeURIComponent(summaryId)}`, { method: 'PATCH', body: JSON.stringify({ summary_text, language }) }),
   getTimeline: () => request<Page<TimelineEvent>>('/timeline?limit=100'),
+  getFhirBundle: () => request<Record<string, unknown>>('/profile/me/fhir'),
   updateEvent: (id: string, changes: Partial<Pick<TimelineEvent, 'event_date' | 'event_type' | 'title' | 'description' | 'data'>>) =>
     request<TimelineEvent>(`/timeline/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(changes) }),
   deleteEvent: (id: string) => request<void>(`/timeline/${encodeURIComponent(id)}`, { method: 'DELETE' }),
