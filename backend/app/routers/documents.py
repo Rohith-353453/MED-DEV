@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Annotated
 from urllib.parse import quote
@@ -33,6 +34,7 @@ from app.services.storage import get_storage
 from app.services.timeline import rebuild_document_events
 
 router = APIRouter(prefix="/documents", tags=["documents"])
+logger = logging.getLogger(__name__)
 Session = Annotated[AsyncSession, Depends(get_session)]
 ALLOWED_TYPES = {"application/pdf", "image/jpeg", "image/png"}
 EXTENSION_TYPES = {".pdf": "application/pdf", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png"}
@@ -410,12 +412,31 @@ async def generate_summary(
         )
         extracted.notes = f"{extracted.notes}\n{coverage_note}" if extracted.notes else coverage_note
     language = normalize_language(payload.language or profile.preferred_language)
-    ai = get_ai_provider()
+    ai = None
     try:
+        ai = get_ai_provider()
         summary_text = await ai.summarize(extracted, language)
+    except Exception as exc:
+        # Log the exception type only; provider errors can contain snippets of
+        # source health information and should not be copied into application logs.
+        logger.error(
+            "Summary generation failed (language=%s, error_type=%s)",
+            language,
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="The summary service could not complete this request. Please try again later.",
+        ) from exc
     finally:
-        if hasattr(ai, "close"):
-            await ai.close()
+        if ai is not None and hasattr(ai, "close"):
+            try:
+                await ai.close()
+            except Exception as exc:
+                logger.error(
+                    "Summary provider cleanup failed (error_type=%s)",
+                    type(exc).__name__,
+                )
     summary = HealthSummary(
         owner_id=profile.id,
         document_id=document.id,

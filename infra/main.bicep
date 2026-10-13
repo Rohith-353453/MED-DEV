@@ -12,14 +12,10 @@ param containerAppsEnvironmentName string
 param postgresServerName string
 @description('Container image reference, including registry, repository, and immutable tag.')
 param backendImage string
-@description('Entra External ID tenant identifier.')
-param entraTenantId string
-@description('Exact issuer URL expected in Entra access tokens.')
-param entraIssuer string
-@description('Audience expected in Entra access tokens, usually api://<API app client ID>.')
-param entraApiAudience string
-@description('Allowed frontend origin used when createStaticWebApp is false, for example https://app.example.com.')
-param frontendOrigin string = ''
+@description('Firebase project ID used to verify Firebase ID tokens.')
+param firebaseProjectId string
+@description('Exact allowed browser origin, including scheme and host and without a trailing slash.')
+param frontendOrigin string = 'https://white-island-0d7509300.1.azurestaticapps.net'
 @description('Azure OpenAI endpoint, for example https://<resource>.openai.azure.com.')
 param azureOpenAiEndpoint string
 @description('GPT-4o deployment name configured in the Azure OpenAI resource.')
@@ -178,10 +174,8 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'API_PREFIX', value: '/api' }
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'AUTO_CREATE_SCHEMA', value: 'false' }
-            { name: 'AUTH_MODE', value: 'entra' }
-            { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-            { name: 'ENTRA_ISSUER', value: entraIssuer }
-            { name: 'ENTRA_API_AUDIENCE', value: entraApiAudience }
+            { name: 'AUTH_MODE', value: 'firebase' }
+            { name: 'FIREBASE_PROJECT_ID', value: firebaseProjectId }
             { name: 'STORAGE_PROVIDER', value: 'azure' }
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: blobAccountUrl }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'medical-documents' }
@@ -196,7 +190,7 @@ resource api 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection' }
-            { name: 'FRONTEND_ORIGINS', value: createStaticWebApp ? 'https://${staticWebApp.properties.defaultHostname}' : frontendOrigin }
+            { name: 'FRONTEND_ORIGINS', value: frontendOrigin }
             { name: 'MAX_DOCUMENT_PAGES', value: '2' }
             { name: 'AZURE_DOCUMENT_INTELLIGENCE_MAX_MB', value: '4' }
           ]
@@ -235,10 +229,8 @@ resource worker 'Microsoft.App/containerApps@2025-01-01' = {
             { name: 'APP_ENV', value: 'production' }
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'AUTO_CREATE_SCHEMA', value: 'false' }
-            { name: 'AUTH_MODE', value: 'entra' }
-            { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-            { name: 'ENTRA_ISSUER', value: entraIssuer }
-            { name: 'ENTRA_API_AUDIENCE', value: entraApiAudience }
+            { name: 'AUTH_MODE', value: 'firebase' }
+            { name: 'FIREBASE_PROJECT_ID', value: firebaseProjectId }
             { name: 'STORAGE_PROVIDER', value: 'azure' }
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: blobAccountUrl }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'medical-documents' }

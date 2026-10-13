@@ -12,7 +12,7 @@ The current implementation focus is the FastAPI backend. See [backend/README.md]
 
 ## Frontend
 
-The React interface in [frontend/](frontend/) now uses the FastAPI endpoints for documents, summaries, profile, and timeline. See [frontend/README.md](frontend/README.md) for local setup and Entra SPA configuration.
+The React interface in [frontend/](frontend/) uses Firebase authentication and the FastAPI endpoints for documents, summaries, profile, and timeline. See [frontend/README.md](frontend/README.md) for local setup.
 
 ## Synthetic demo
 

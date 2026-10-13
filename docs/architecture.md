@@ -5,7 +5,7 @@
 ```mermaid
 flowchart LR
   Browser[React + TypeScript SPA]
-  Identity[Microsoft Entra External ID\nAuthorization Code + PKCE]
+  Identity[Firebase Authentication\nFirebase ID token]
   Static[Azure Static Web Apps]
   API[Azure Container Apps\nFastAPI API]
   Queue[(Azure Storage Queue)]
