@@ -7,7 +7,7 @@ import {
   LogOut, Plus, RefreshCw, ShieldCheck, Trash2, Upload, UserRound, X,
 } from 'lucide-react'
 import { api, documentKindLabel, documentStatusLabel, formatDate } from './lib/api'
-import { authEnabled, beginSignIn, completeSignIn, currentAccessToken, signOut } from './lib/auth'
+import { authEnabled, beginSignIn, completeSignIn, currentAccessToken, signUpEnabled, signOut } from './lib/auth'
 import type { ApiDocument, DocumentKind, DocumentListItem, Profile, TimelineEvent } from './types'
 import { I18nProvider, languageOptions, normalizeLanguage, translate, useI18n } from './i18n'
 
@@ -20,6 +20,8 @@ function App() {
   const [token, setToken] = useState<string | null>(currentAccessToken())
   const [authReady, setAuthReady] = useState(false)
   const [authError, setAuthError] = useState('')
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
   const [documents, setDocuments] = useState<DocumentListItem[]>([])
   const [events, setEvents] = useState<TimelineEvent[]>([])
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -121,13 +123,20 @@ function App() {
 
   const login = async () => {
     setAuthError('')
-    try { await beginSignIn() } catch (error) {
+    try { await beginSignIn(authEmail, authPassword) } catch (error) {
       setAuthError(error instanceof Error ? error.message : tr('Could not begin sign-in.'))
     }
   }
 
+  const signup = async () => {
+    setAuthError('')
+    try { await signUpEnabled(authEmail, authPassword) } catch (error) {
+      setAuthError(error instanceof Error ? error.message : tr('Could not create your account.'))
+    }
+  }
+
   if (!authReady) return <div className="live-loading"><LoaderCircle className="spin" /> {tr('Preparing your secure session…')}</div>
-  if (authOn && !token) return <I18nProvider language={language}><main className="auth-screen"><div className="auth-card"><span className="brand-mark"><HeartPulse size={22} /></span><h1>{tr('Welcome to Carefolio')}</h1><p>{tr('Sign in to view and manage your private health documents.')}</p>{authError && <div className="live-error">{authError}</div>}<button className="button button-primary" onClick={() => void login()}><LogIn size={17} /> {tr('Sign in with Microsoft')}</button><small>{tr('Your sign-in is handled by your configured Entra External ID tenant.')}</small></div></main></I18nProvider>
+  if (authOn && !token) return <I18nProvider language={language}><main className="auth-screen"><div className="auth-card"><span className="brand-mark"><HeartPulse size={22} /></span><h1>{tr('Welcome to Carefolio')}</h1><p>{tr('Sign in to view and manage your private health documents.')}</p>{authError && <div className="live-error">{authError}</div>}<label className="auth-field"><span>{tr('Email address')}</span><input type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} autoComplete="email" /></label><label className="auth-field"><span>{tr('Password')}</span><input type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} autoComplete="current-password" /></label><button className="button button-primary" onClick={() => void login()}><LogIn size={17} /> {tr('Sign in')}</button><button className="button button-secondary" onClick={() => void signup()}>{tr('New here? Create an account')}</button><small>{tr('Firebase handles passwords. Carefolio stores your profile and records.')}</small></div></main></I18nProvider>
 
   const changeLanguage = async (value: string) => {
     const next = normalizeLanguage(value)
@@ -152,7 +161,7 @@ function App() {
       </nav>
       <div className="sidebar-divider" /><div className="workspace-label">{tr('PREFERENCES')}</div>
       <nav className="main-nav"><NavLink to="/profile" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><UserRound size={18} /> {tr('My profile')}</NavLink></nav>
-      <div className="sidebar-bottom"><div className="privacy-card"><span className="privacy-icon"><ShieldCheck size={17} /></span><div><strong>{tr('Your health stays yours')}</strong><span>{tr('Your documents are private to your account.')}</span></div></div><div className="account-row"><span className="avatar">{initials(profile?.display_name)}</span><span className="account-name"><strong>{profile?.display_name || tr('Your account')}</strong><small>{authOn ? tr('Entra account') : tr('Local demo account')}</small></span></div></div>
+      <div className="sidebar-bottom"><div className="privacy-card"><span className="privacy-icon"><ShieldCheck size={17} /></span><div><strong>{tr('Your health stays yours')}</strong><span>{tr('Your documents are private to your account.')}</span></div></div><div className="account-row"><span className="avatar">{initials(profile?.display_name)}</span><span className="account-name"><strong>{profile?.display_name || tr('Your account')}</strong><small>{authOn ? tr('Firebase account') : tr('Local demo account')}</small></span></div></div>
     </aside>
     <main className="main-area">
       <header className="topbar"><div className="breadcrumb"><span>{tr('My health')}</span><ChevronRight size={15} /><strong>{title}</strong></div><div className="topbar-actions"><label className="language-picker"><span className="sr-only">{tr('Interface language')}</span><select aria-label={tr('Interface language')} value={language} onChange={(event) => void changeLanguage(event.target.value)}>{languageOptions.map((option) => <option value={option.code} key={option.code}>{option.name}</option>)}</select></label><span className={`connection-label ${authOn ? 'secure' : ''}`}>{authOn ? tr('Signed in') : tr('Local demo')}</span>{authOn && <button className="icon-button" aria-label={tr('Sign out')} title={tr('Sign out')} onClick={() => { setToken(null); setDocuments([]); setEvents([]); setProfile(null); void signOut() }}><LogOut size={17} /></button>}<button className="icon-button" aria-label={tr('Refresh records')} title={tr('Refresh')} onClick={() => void refresh()}><RefreshCw size={16} /></button></div></header>
