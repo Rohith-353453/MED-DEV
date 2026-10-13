@@ -12,16 +12,10 @@ param containerAppsEnvironmentName string
 param postgresServerName string
 @description('Container image reference, including registry, repository, and immutable tag.')
 param backendImage string
-@description('Name of the existing Azure Container Registry that hosts the backend image.')
-param containerRegistryName string
-@description('Entra External ID tenant identifier.')
-param entraTenantId string
-@description('Exact issuer URL expected in Entra access tokens.')
-param entraIssuer string
-@description('Audience expected in Entra access tokens, usually api://<API app client ID>.')
-param entraApiAudience string
-@description('Allowed frontend origin used when createStaticWebApp is false, for example https://app.example.com.')
-param frontendOrigin string = ''
+@description('Firebase project ID used to verify Firebase ID tokens.')
+param firebaseProjectId string
+@description('Exact allowed browser origin, including scheme and host and without a trailing slash.')
+param frontendOrigin string = 'https://white-island-0d7509300.1.azurestaticapps.net'
 @description('Azure OpenAI endpoint, for example https://<resource>.openai.azure.com.')
 param azureOpenAiEndpoint string
 @description('GPT-4o deployment name configured in the Azure OpenAI resource.')
@@ -45,17 +39,17 @@ param createStaticWebApp bool = true
 param allowAzureServicesToPostgres bool = true
 
 var postgresDatabaseName = 'carefolio'
-var queueAccountUrl = 'https://${storageAccountName}.queue.${environment().suffixes.storage}'
-var blobAccountUrl = 'https://${storageAccountName}.blob.${environment().suffixes.storage}'
+var queueAccountUrl = 'https://${storageAccountName}.queue.core.windows.net'
+var blobAccountUrl = 'https://${storageAccountName}.blob.core.windows.net'
 var postgresHost = '${postgresServerName}.postgres.database.azure.com'
 var databaseUrl = 'postgresql+asyncpg://${postgresAdminLogin}:${postgresAdminPassword}@${postgresHost}:5432/${postgresDatabaseName}?ssl=require'
 var blobContributorRoleId = 'ba92f5b4-2d11-453d-a403-e96b0029c9fe'
 var blobReaderRoleId = '2a2b9908-6ea1-4ae2-8e65-a410df84e7d1'
 var queueSenderRoleId = 'c6a89b2d-59bc-44d0-9896-0f6e12d7b80a'
 var queueProcessorRoleId = '8a0f0c08-91a1-4084-bc3d-661d67233fed'
+var queueReaderRoleId = '19e7f393-937e-4f77-808e-94535e297925'
 var openAiUserRoleId = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
 var cognitiveServicesUserRoleId = 'a97b65f3-24c7-4388-baec-2e87135dc908'
-var acrPullRoleId = '7f951dda-4ed3-4680-a7ca-43fe172d538d'
 
 resource storage 'Microsoft.Storage/storageAccounts@2023-05-01' = {
   name: storageAccountName
@@ -95,30 +89,6 @@ resource azureOpenAi 'Microsoft.CognitiveServices/accounts@2023-05-01' existing 
 resource documentIntelligence 'Microsoft.CognitiveServices/accounts@2023-05-01' existing = {
   name: documentIntelligenceResourceName
 }
-resource containerRegistry 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
-  name: containerRegistryName
-}
-resource acrPullIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${containerAppsEnvironmentName}-acr-pull'
-  location: location
-}
-resource apiIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${containerAppsEnvironmentName}-api'
-  location: location
-}
-resource workerIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' = {
-  name: '${containerAppsEnvironmentName}-worker'
-  location: location
-}
-resource acrPullRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(containerRegistry.id, acrPullIdentity.id, acrPullRoleId)
-  scope: containerRegistry
-  properties: {
-    roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', acrPullRoleId)
-    principalId: acrPullIdentity.properties.principalId
-    principalType: 'ServicePrincipal'
-  }
-}
 
 resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
   name: postgresServerName
@@ -131,7 +101,7 @@ resource postgres 'Microsoft.DBforPostgreSQL/flexibleServers@2024-08-01' = {
     storage: { storageSizeGB: 32 }
     backup: { backupRetentionDays: 7, geoRedundantBackup: 'Disabled' }
     highAvailability: { mode: 'Disabled' }
-    network: { publicNetworkAccess: 'Enabled' }
+    publicNetworkAccess: 'Enabled'
   }
 }
 resource postgresDatabase 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2024-08-01' = {
@@ -160,11 +130,10 @@ resource appInsights 'Microsoft.Insights/components@2020-02-02' = {
     IngestionMode: 'LogAnalytics'
   }
 }
-resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2026-07-01' = {
+resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2025-01-01' = {
   name: containerAppsEnvironmentName
   location: location
   properties: {
-    environmentMode: 'Express'
     appLogsConfiguration: {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
@@ -175,24 +144,14 @@ resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2026-07-01'
   }
 }
 
-resource api 'Microsoft.App/containerApps@2026-07-01' = {
+resource api 'Microsoft.App/containerApps@2025-01-01' = {
   name: '${containerAppsEnvironmentName}-api'
   location: location
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${acrPullIdentity.id}': {}
-      '${apiIdentity.id}': {}
-    }
-  }
-  dependsOn: [acrPullRole]
+  identity: { type: 'SystemAssigned' }
   properties: {
     managedEnvironmentId: containerAppsEnvironment.id
     configuration: {
       activeRevisionsMode: 'Single'
-      registries: [
-        { server: '${containerRegistry.name}.azurecr.io', identity: acrPullIdentity.id }
-      ]
       ingress: {
         external: true
         targetPort: 8000
@@ -209,16 +168,14 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = {
         {
           name: 'api'
           image: backendImage
-          resources: { cpu: json('0.5'), memory: '1Gi' }
+          resources: { cpu: 0.5, memory: '1Gi' }
           env: [
             { name: 'APP_ENV', value: 'production' }
             { name: 'API_PREFIX', value: '/api' }
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'AUTO_CREATE_SCHEMA', value: 'false' }
-            { name: 'AUTH_MODE', value: 'entra' }
-            { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-            { name: 'ENTRA_ISSUER', value: entraIssuer }
-            { name: 'ENTRA_API_AUDIENCE', value: entraApiAudience }
+            { name: 'AUTH_MODE', value: 'firebase' }
+            { name: 'FIREBASE_PROJECT_ID', value: firebaseProjectId }
             { name: 'STORAGE_PROVIDER', value: 'azure' }
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: blobAccountUrl }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'medical-documents' }
@@ -233,8 +190,7 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = {
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection' }
-            { name: 'AZURE_CLIENT_ID', value: apiIdentity.properties.clientId }
-            { name: 'FRONTEND_ORIGINS', value: createStaticWebApp ? 'https://${staticWebApp.properties.defaultHostname}' : frontendOrigin }
+            { name: 'FRONTEND_ORIGINS', value: frontendOrigin }
             { name: 'MAX_DOCUMENT_PAGES', value: '2' }
             { name: 'AZURE_DOCUMENT_INTELLIGENCE_MAX_MB', value: '4' }
           ]
@@ -249,24 +205,14 @@ resource api 'Microsoft.App/containerApps@2026-07-01' = {
   }
 }
 
-resource worker 'Microsoft.App/containerApps@2026-07-01' = {
+resource worker 'Microsoft.App/containerApps@2025-01-01' = {
   name: '${containerAppsEnvironmentName}-worker'
   location: location
-  identity: {
-    type: 'UserAssigned'
-    userAssignedIdentities: {
-      '${acrPullIdentity.id}': {}
-      '${workerIdentity.id}': {}
-    }
-  }
-  dependsOn: [acrPullRole]
+  identity: { type: 'SystemAssigned' }
   properties: {
     managedEnvironmentId: containerAppsEnvironment.id
     configuration: {
       activeRevisionsMode: 'Single'
-      registries: [
-        { server: '${containerRegistry.name}.azurecr.io', identity: acrPullIdentity.id }
-      ]
       secrets: [
         { name: 'database-url', value: databaseUrl }
         { name: 'appinsights-connection', value: appInsights.properties.ConnectionString }
@@ -278,15 +224,13 @@ resource worker 'Microsoft.App/containerApps@2026-07-01' = {
           name: 'worker'
           image: backendImage
           command: ['python', '-m', 'app.worker']
-          resources: { cpu: json('0.5'), memory: '1Gi' }
+          resources: { cpu: 0.5, memory: '1Gi' }
           env: [
             { name: 'APP_ENV', value: 'production' }
             { name: 'DATABASE_URL', secretRef: 'database-url' }
             { name: 'AUTO_CREATE_SCHEMA', value: 'false' }
-            { name: 'AUTH_MODE', value: 'entra' }
-            { name: 'ENTRA_TENANT_ID', value: entraTenantId }
-            { name: 'ENTRA_ISSUER', value: entraIssuer }
-            { name: 'ENTRA_API_AUDIENCE', value: entraApiAudience }
+            { name: 'AUTH_MODE', value: 'firebase' }
+            { name: 'FIREBASE_PROJECT_ID', value: firebaseProjectId }
             { name: 'STORAGE_PROVIDER', value: 'azure' }
             { name: 'AZURE_STORAGE_ACCOUNT_URL', value: blobAccountUrl }
             { name: 'AZURE_STORAGE_CONTAINER', value: 'medical-documents' }
@@ -301,15 +245,29 @@ resource worker 'Microsoft.App/containerApps@2026-07-01' = {
             { name: 'AZURE_OPENAI_ENDPOINT', value: azureOpenAiEndpoint }
             { name: 'AZURE_OPENAI_DEPLOYMENT', value: azureOpenAiDeployment }
             { name: 'APPLICATIONINSIGHTS_CONNECTION_STRING', secretRef: 'appinsights-connection' }
-            { name: 'AZURE_CLIENT_ID', value: workerIdentity.properties.clientId }
             { name: 'MAX_DOCUMENT_PAGES', value: '2' }
             { name: 'AZURE_DOCUMENT_INTELLIGENCE_MAX_MB', value: '4' }
           ]
         }
       ]
-      // Express doesn't support custom queue scalers. Keep one poller active so
-      // queued documents are processed; scale it down when the demo is idle.
-      scale: { minReplicas: 1, maxReplicas: 1 }
+      scale: {
+        minReplicas: 0
+        maxReplicas: 2
+        rules: [
+          {
+            name: 'document-queue'
+            custom: {
+              type: 'azure-queue'
+              metadata: {
+                queueName: queueName
+                queueLength: '1'
+                accountName: storageAccountName
+              }
+              identity: 'system'
+            }
+          }
+        ]
+      }
     }
   }
 }
@@ -317,36 +275,47 @@ resource worker 'Microsoft.App/containerApps@2026-07-01' = {
 resource apiBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(blobContainer.id, api.id, blobContributorRoleId)
   scope: blobContainer
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobContributorRoleId), principalId: apiIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobContributorRoleId), principalId: api.identity.principalId, principalType: 'ServicePrincipal' }
 }
 resource apiQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(documentQueue.id, api.id, queueSenderRoleId)
   scope: documentQueue
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueSenderRoleId), principalId: apiIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueSenderRoleId), principalId: api.identity.principalId, principalType: 'ServicePrincipal' }
 }
 resource workerBlobRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(blobContainer.id, worker.id, blobReaderRoleId)
   scope: blobContainer
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobReaderRoleId), principalId: workerIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', blobReaderRoleId), principalId: worker.identity.principalId, principalType: 'ServicePrincipal' }
 }
 resource workerQueueRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(documentQueue.id, worker.id, queueProcessorRoleId)
   scope: documentQueue
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueProcessorRoleId), principalId: workerIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueProcessorRoleId), principalId: worker.identity.principalId, principalType: 'ServicePrincipal' }
+}
+resource workerQueueScalerRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(documentQueue.id, worker.id, queueReaderRoleId)
+  scope: documentQueue
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', queueReaderRoleId), principalId: worker.identity.principalId, principalType: 'ServicePrincipal' }
+}
+resource apiOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
+  name: guid(azureOpenAi.id, api.id, openAiUserRoleId)
+  scope: azureOpenAi
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', openAiUserRoleId), principalId: api.identity.principalId, principalType: 'ServicePrincipal' }
 }
 resource workerOpenAiRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(azureOpenAi.id, worker.id, openAiUserRoleId)
   scope: azureOpenAi
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', openAiUserRoleId), principalId: workerIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', openAiUserRoleId), principalId: worker.identity.principalId, principalType: 'ServicePrincipal' }
 }
 resource workerDocumentIntelligenceRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
   name: guid(documentIntelligence.id, worker.id, cognitiveServicesUserRoleId)
   scope: documentIntelligence
-  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId), principalId: workerIdentity.properties.principalId, principalType: 'ServicePrincipal' }
+  properties: { roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesUserRoleId), principalId: worker.identity.principalId, principalType: 'ServicePrincipal' }
 }
+
 resource staticWebApp 'Microsoft.Web/staticSites@2023-12-01' = if (createStaticWebApp) {
   name: '${containerAppsEnvironmentName}-web'
-  location: 'eastasia'
+  location: 'eastus2'
   sku: { name: 'Free', tier: 'Free' }
   properties: { buildProperties: { appLocation: 'frontend', outputLocation: 'dist' } }
 }

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     upload_dir: str = "./uploads"
     storage_provider: str = "local"
     azure_storage_account_url: str | None = None
+    azure_storage_connection_string: str | None = None
     azure_storage_container: str = "medical-documents"
     queue_provider: str = "local"
     azure_storage_queue_account_url: str | None = None
@@ -41,12 +42,19 @@ class Settings(BaseSettings):
     entra_jwks_uri: str | None = None
     entra_api_audience: str | None = None
     entra_required_scope: str = "access_as_user"
+    firebase_project_id: str | None = None
     frontend_origins: str = "http://localhost:5173"
     applicationinsights_connection_string: str | None = None
     max_document_pages: int = Field(default=2, ge=1, le=100)
     azure_document_intelligence_max_mb: int = Field(default=4, ge=1, le=100)
 
-    @field_validator("auth_mode", "storage_provider", "queue_provider", "ocr_provider", "llm_provider")
+    @field_validator(
+        "auth_mode",
+        "storage_provider",
+        "queue_provider",
+        "ocr_provider",
+        "llm_provider",
+    )
     @classmethod
     def lowercase_provider(cls, value: str) -> str:
         return value.strip().lower()
@@ -64,8 +72,8 @@ class Settings(BaseSettings):
         return self.azure_openai_summary_deployment or self.azure_openai_deployment
 
     def validate_deployment_security(self) -> None:
-        if self.auth_mode not in {"mock", "entra"}:
-            raise RuntimeError("AUTH_MODE must be either 'mock' or 'entra'.")
+        if self.auth_mode not in {"mock", "entra", "firebase"}:
+            raise RuntimeError("AUTH_MODE must be 'mock', 'entra', or 'firebase'.")
         if self.storage_provider not in {"local", "azure"}:
             raise RuntimeError("STORAGE_PROVIDER must be either 'local' or 'azure'.")
         if self.queue_provider not in {"local", "azure"}:
@@ -74,18 +82,34 @@ class Settings(BaseSettings):
             raise RuntimeError(
                 "PROCESSING_LEASE_SECONDS must be lower than QUEUE_MESSAGE_VISIBILITY_SECONDS."
             )
-        if self.ocr_provider not in {"mock", "azure"} or self.llm_provider not in {"mock", "azure"}:
+        if (
+            self.ocr_provider not in {"mock", "azure"}
+            or self.llm_provider not in {"mock", "azure"}
+        ):
             raise RuntimeError("OCR_PROVIDER and LLM_PROVIDER must be either 'mock' or 'azure'.")
-        if self.app_env.lower() not in {"local", "development", "test"} and self.auth_mode == "mock":
+        if (
+            self.app_env.lower() not in {"local", "development", "test"}
+            and self.auth_mode == "mock"
+        ):
             raise RuntimeError("Mock authentication is forbidden outside local/development/test.")
         if self.auth_mode == "entra" and not all(
             [self.entra_tenant_id, self.entra_issuer, self.entra_api_audience]
         ):
-            raise RuntimeError("Entra mode requires tenant ID, issuer, and API audience configuration.")
-        if self.storage_provider == "azure" and not self.azure_storage_account_url:
-            raise RuntimeError("Azure Blob Storage requires AZURE_STORAGE_ACCOUNT_URL.")
-        if self.queue_provider == "azure" and not self.azure_storage_queue_account_url:
-            raise RuntimeError("Azure Queue Storage requires AZURE_STORAGE_QUEUE_ACCOUNT_URL.")
+            raise RuntimeError(
+                "Entra mode requires tenant ID, issuer, and API audience configuration."
+            )
+        if self.auth_mode == "firebase" and not self.firebase_project_id:
+            raise RuntimeError("Firebase auth mode requires FIREBASE_PROJECT_ID.")
+        if self.storage_provider == "azure" and not (
+            self.azure_storage_connection_string or self.azure_storage_account_url
+        ):
+            raise RuntimeError(
+                "Azure Blob Storage requires a connection string or account URL."
+            )
+        if self.queue_provider == "azure" and not (
+            self.azure_storage_connection_string or self.azure_storage_queue_account_url
+        ):
+            raise RuntimeError("Azure Queue Storage requires a connection string or account URL.")
         if self.ocr_provider == "azure" and not self.azure_document_intelligence_endpoint:
             raise RuntimeError("Azure OCR requires AZURE_DOCUMENT_INTELLIGENCE_ENDPOINT.")
         if self.llm_provider == "azure" and not all(
